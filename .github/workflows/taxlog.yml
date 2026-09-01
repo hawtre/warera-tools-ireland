@@ -45,3 +45,5 @@ jobs:
             git commit -m "tax-log: $(date -u +%FT%TZ)"
             git push
           fi
+
+# registered on fork 2026-09-01
