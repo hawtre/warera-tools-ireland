@@ -32,6 +32,7 @@ js/
   toolkit.js      Home/landing shell + tab navigation
   advisor.js      Company Migration Advisor
   clockin.js      Employee Clock-In Monitor
+  softcap.js      Gear Softcap Advisor
   buddy-finder.js Buddy Finder (public)
   daily-profit.js Daily Profit calculator
   wealth.js       Wealth tracker
@@ -158,6 +159,18 @@ Wage transactions are the source of truth. A clock-in is inferred from a wage pa
 Cycles within 4 minutes of each other are grouped into one "episode" to keep the timeline readable. Status is Active (clocked in within 24h), Slowing (24 to 48h), or Idle (none in 48h).
 
 The payroll projection shows three figures. Next 3h and Next 6h are pace-based: last 24h of wages divided by 24, times the window. Next 10h "if maxed" is the worst case where every worker's energy bar is full and gets drained completely. Ten hours is used because energy regenerates at 10% per hour, so that's exactly one full refill from empty.
+
+### Gear Softcap Advisor (`softcap.js`)
+
+Finds the cheapest armor and dodge gear that still reaches the same effective percentage, so players stop paying for stat points that round away.
+
+Armor and Dodge are the only two skills with a soft cap - every other skill has `softCap: null` in `gameConfig`, so the tool covers exactly three slots: chest and pants (armor) and boots (dodge). The game converts raw points with `effective% = round(100 * total / (total + softCap))`, where `total` is the skill contribution plus the gear contribution and `softCap` is 40 for both. Skill levels are integers, equipment rolls an integer inside its rarity's `dynamicStats` range, and the result is rounded, so effective% is a step function: consecutive totals collapse into bands and everything above a band's floor is wasted. With dodge maxed, boots rolled at 52, 53, 54 and 55 all give 70%.
+
+Nothing is hardcoded. The soft caps, the skill level tables and every equipment tier's stat range are read from `gameConfig.getGameConfig` at runtime, so a balance patch flows through without a code change.
+
+The skill dropdown recalculates the bands as if the player had that skill level. Assuming skills can't be respecced, bands entirely below the skill contribution are filtered out of both the target list and the band table.
+
+One limitation, stated in the tool's how-to: `totalAfterSoftCap` is the only value the API exposes and the only one the game client consumes, but combat is resolved server-side. If the server rolled against an unrounded value, the bottom of a band would be marginally worse than the top.
 
 ### Buddy Finder (`buddy-finder.js`)
 

@@ -2702,3 +2702,103 @@ html[data-theme="light"] .idd-period-panel input { color-scheme: light; }
 @media (max-width: 380px) {
   .idd-summary { grid-template-columns: 1fr; }
 }
+
+/* ── Gear Softcap Advisor (sc-) ──────────────────────────────────────
+   Two cards, one per soft-capped stat. Each is a static panel rather than
+   an expander: everything except the full band table matters at a glance. */
+.sc-out { display: grid; gap: 14px; }
+
+.sc-mismatch {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  color: var(--danger);
+  border-radius: 8px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
+}
+
+.sc-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: 8px; overflow: hidden;
+}
+.sc-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.sc-icon { font-size: 18px; line-height: 1; }
+.sc-name { font-weight: 600; }
+.sc-pct { color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.sc-body { padding: 16px; display: grid; gap: 14px; }
+
+.sc-breakdown { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.sc-field { display: grid; gap: 4px; }
+.sc-field > span {
+  font-size: 11px; text-transform: uppercase; color: var(--muted);
+  letter-spacing: 0.6px; font-weight: 500;
+}
+.sc-field > strong { font-size: 18px; font-variant-numeric: tabular-nums; }
+.sc-op { color: var(--muted); font-size: 16px; padding-bottom: 2px; user-select: none; }
+
+.sc-card select {
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 5px 8px; font-size: 14px; font-family: inherit;
+}
+
+.sc-note { margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted); }
+.sc-note strong { color: var(--text); }
+
+.sc-target {
+  background: var(--panel-2); border-radius: 6px; padding: 14px;
+  display: grid; gap: 10px;
+}
+.sc-target .sc-field { justify-items: start; }
+.sc-target select { min-width: 110px; }
+.sc-advice { font-size: 13px; line-height: 1.6; color: var(--muted); }
+.sc-advice strong { color: var(--text); }
+.sc-warn { color: var(--warn); }
+.sc-dead { color: var(--muted); }
+.sc-price { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sc-src {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+  opacity: 0.85;
+}
+
+.sc-bands summary {
+  cursor: pointer; font-size: 13px; color: var(--link);
+  list-style: none; user-select: none;
+}
+.sc-bands summary::-webkit-details-marker { display: none; }
+.sc-bands summary::before { content: '▸ '; }
+.sc-bands[open] summary::before { content: '▾ '; }
+
+.sc-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
+.sc-table th {
+  text-align: left; padding: 6px 10px; font-weight: 500;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--muted); border-bottom: 1px solid var(--border);
+}
+.sc-table td {
+  padding: 5px 10px; border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.sc-table tr:last-child td { border-bottom: none; }
+.sc-table tr.sc-here td { background: rgba(74, 222, 128, 0.08); color: var(--accent); }
+.sc-table tr.sc-unreachable td { color: var(--muted); opacity: 0.6; }
+
+@media (max-width: 720px) {
+  .sc-breakdown { gap: 10px; }
+  .sc-field > strong { font-size: 16px; }
+}
+@media (max-width: 600px) {
+  .sc-head { flex-wrap: wrap; }
+  /* A shared rule stretches .verdict to full width on narrow screens; these
+     cards are compact enough to keep the pill hugging its text. */
+  .sc-head .verdict { margin-left: 0; flex: 0 0 auto; }
+  .sc-breakdown { display: grid; grid-template-columns: 1fr; }
+  .sc-op { display: none; }
+  .sc-card select { width: 100%; }
+}

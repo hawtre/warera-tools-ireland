@@ -24,7 +24,7 @@
 })();
 </script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3 2'%3E%3Crect width='1' height='2' fill='%23009A49'/%3E%3Crect x='1' width='1' height='2' fill='white'/%3E%3Crect x='2' width='1' height='2' fill='%23FF7900'/%3E%3C/svg%3E" />
-<link rel="stylesheet" href="styles.css?v=20260617h" />
+<link rel="stylesheet" href="styles.css?v=20260902a" />
 <link rel="stylesheet" href="community.css?v=20260617h" />
 <!-- Privacy-friendly analytics (Umami) -->
 <!-- Analytics: the previous Umami website-id belonged to the original
@@ -87,6 +87,7 @@
             <a class="stg-tab" href="#factory-tax" role="tab">🧾 <span>Factory Tax</span></a>
             <button class="stg-tab" data-stg-tab="wealth" role="tab">💰 <span>Wealth tracker</span></button>
             <button class="stg-tab" data-stg-tab="mu" role="tab">🔫 <span>Military Units</span></button>
+            <button class="stg-tab" data-stg-tab="softcap" role="tab">🛡️ <span>Gear Softcap</span></button>
             <a class="stg-tab" href="#roster" role="tab">🛰️ <span>Battle Intel Ireland</span></a>
             <button class="stg-tab" data-stg-tab="sp-advisor" role="tab">🧮 <span>Skill Point Advisor</span></button>
           </nav>
@@ -714,6 +715,78 @@
           <li><strong>The percentage on each verdict pill is a relative increase</strong>, not a percentage-point change.</li>
           <li><strong>Numbers shown are regional/country bonuses only.</strong> Company-level upgrades aren't location-dependent, so totals here may be lower than what the game shows on your company.</li>
           <li>Not modelled: migration cost, active wars or sanctions, worker recruitment effects of high tax, market and sales taxes, or political shifts.</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <!-- ─── Gear Softcap Advisor view ──────────────────────────────────
+       Armor and Dodge are the only soft-capped skills, so gear points in
+       the chest, pants and boots slots buy nothing once they land above
+       the bottom of a rounding band. This tool finds that bottom. -->
+  <section class="view" data-view="softcap">
+    <div class="tool-header">
+      <div class="title-block">
+        <h2><span>🛡️</span> Gear Softcap Advisor</h2>
+        <p>Stop overpaying for armor and dodge. Find the cheapest gear that gives the same effective percentage.</p>
+      </div>
+      <div class="controls">
+        <input id="sc-username" type="text" placeholder="Your War Era username" autocomplete="off" spellcheck="false" />
+        <button id="sc-go">Analyse</button>
+      </div>
+    </div>
+
+    <div id="sc-steps" class="steps hidden">
+      <div class="step" data-state="pending" data-step="1">
+        <div class="step-icon"></div>
+        <div class="step-body">
+          <div class="step-title">Finding user</div>
+          <div class="step-sub"></div>
+        </div>
+        <div class="step-count"></div>
+      </div>
+      <div class="step" data-state="pending" data-step="2">
+        <div class="step-icon"></div>
+        <div class="step-body">
+          <div class="step-title">Loading game config</div>
+          <div class="step-sub"></div>
+        </div>
+        <div class="step-count"></div>
+      </div>
+      <div class="step" data-state="pending" data-step="3">
+        <div class="step-icon"></div>
+        <div class="step-body">
+          <div class="step-title">Reading gear stats</div>
+          <div class="step-sub"></div>
+        </div>
+        <div class="step-count"></div>
+      </div>
+      <div class="step" data-state="pending" data-step="4">
+        <div class="step-icon"></div>
+        <div class="step-body">
+          <div class="step-title">Pricing gear</div>
+          <div class="step-sub"></div>
+        </div>
+        <div class="step-count"></div>
+      </div>
+    </div>
+    <div id="sc-status" class="status hidden"></div>
+    <div id="sc-hint" class="hint">Enter your War Era username above to begin.</div>
+    <div id="sc-out" class="sc-out"></div>
+    <details class="howto hidden" id="sc-howto">
+      <summary>How this works</summary>
+      <div class="howto-body">
+        <ul>
+          <li><strong>Only Armor and Dodge are soft-capped.</strong> Every other skill — precision (gloves), critical damages (helmet), attack, critical chance — has no soft cap in the game config, so every point there counts in full. This tool covers the three slots that feed the capped stats: <strong>chest</strong> and <strong>pants</strong> for armor, <strong>boots</strong> for dodge.</li>
+          <li><strong>The formula</strong> is <code>effective% = round(100 × total ÷ (total + softCap))</code>, where <code>total</code> is your skill contribution plus your gear contribution and <code>softCap</code> is read live from the game config (currently 40 for both stats). Maxed out that gives 200 ÷ 240 = <strong>83% armor</strong> and 100 ÷ 140 = <strong>71% dodge</strong>.</li>
+          <li><strong>Why points get wasted.</strong> Skill levels are whole numbers, every piece of equipment rolls a whole number inside its rarity's range, and the result is rounded to a whole number. So a run of consecutive totals all collapse to the same percentage. With dodge maxed, boots rolled at 52, 53, 54 and 55 are <em>all</em> 70% — buying the 55 pays for three points that do nothing.</li>
+          <li><strong>Change the skill dropdown to plan ahead.</strong> It doesn't touch your account; it recalculates the bands as if you had that skill level, so you can see what gear you'd need after your next few skill points.</li>
+          <li><strong>Armor is split over two slots.</strong> The tool tells you the combined chest + pants total you need and works out the cheapest chest/pants pair that reaches it — you're free to split it differently between the two.</li>
+          <li><strong>The numbers are checked against the game.</strong> The API returns its own <code>totalAfterSoftCap</code> for each stat; the tool recomputes it locally and warns you if the two ever disagree, rather than trusting a formula that has gone stale.</li>
+          <li><strong>One caveat.</strong> The rounded percentage is the only value the game's API exposes and the only one its client uses, but combat itself is resolved on the server. If the server rolled against an unrounded value, the bottom of a band would be a hair worse than the top. Nothing observable suggests it does.</li>
+          <li><strong>"Cheapest" means cheapest in coins,</strong> priced from the market. Gear isn't on the ordinary item market, so there's no price feed to read — but every completed sale records both the price and the item's rolled stat, so the tool reads the last 100 sales of each of the 18 chest/pants/boots tiers and builds a price for every individual roll. It then finds the loadout that reaches your target for the least money, which may mean leaving a slot empty.</li>
+          <li><strong>Why the roll matters more than the rarity.</strong> Price climbs steeply <em>inside</em> a rarity: an epic chest rolled at 25 goes for around a third less than the same item rolled at 30. Ranking by rarity alone missed that and could recommend a loadout costing up to 27% more than necessary. A mid-roll epic plus an uncommon routinely beats a max-roll epic plus a common.</li>
+          <li><strong>These are sale prices, not asking prices.</strong> The game exposes no live offer book, so the tool quotes the median of what people actually paid over roughly the last day. Thin tiers are noisier, and a roll with no recent sales is interpolated from its neighbours and labelled <em>estimated</em>. If market data can't be loaded the tool falls back to ranking by rarity and says so.</li>
         </ul>
       </div>
     </details>
@@ -1562,6 +1635,7 @@ Please transfer: ₿X</pre>
 <script src="js/no-resets-table.js?v=20260629a"></script>
 <script src="js/sp-advisor-core.js?v=20260629a"></script>
 <script src="js/sp-advisor.js?v=20260629a"></script>
+<script src="js/softcap.js?v=20260902d"></script>
 <script src="js/toolkit.js?v=20260617h"></script>
 <script src="js/router.js?v=20260617h"></script>
 </body>

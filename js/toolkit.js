@@ -32,8 +32,8 @@
 const ToolkitShell = (() => {
   const DEFAULT_TOOL       = 'advisor';   // first tab; used when no name yet
   const DEFAULT_AFTER_LOAD = 'advisor';   // user typed a name, show their data
-  const TOOLS              = ['advisor', 'clockin', 'buddy-finder', 'profit', 'wealth', 'mu', 'sp-advisor'];
-  const USERNAME_DRIVEN    = new Set(['buddy-finder', 'advisor', 'clockin', 'profit', 'wealth', 'sp-advisor']);
+  const TOOLS              = ['advisor', 'clockin', 'buddy-finder', 'profit', 'wealth', 'mu', 'softcap', 'sp-advisor'];
+  const USERNAME_DRIVEN    = new Set(['buddy-finder', 'advisor', 'clockin', 'profit', 'wealth', 'softcap', 'sp-advisor']);
 
   const MODULES = {
     mu:             () => MUTool,
@@ -42,6 +42,7 @@ const ToolkitShell = (() => {
     clockin:        () => ClockInTool,
     profit:         () => DailyProfitTool,
     wealth:         () => WealthMonitorTool,
+    softcap:        () => GearSoftcapTool,
     'sp-advisor':   () => SkillPointAdvisorTool,
   };
 
@@ -54,6 +55,7 @@ const ToolkitShell = (() => {
     'buddy-finder': { icon: '🤝', title: 'Buddy Finder',      desc: `Find a buddy for the Irish buddy system (you hire each other at minimum wage), or join the waiting list.` },
     profit:         { icon: '📈', title: 'Daily Profit',      desc: `Your projected daily profit — companies, salary, missions and case sales — plus which products pay best per production point.` },
     mu:             { icon: '🇮🇪', title: 'Irish Military Units', desc: `Military Units owned by Irish citizens, based in Ireland, with a majority-Irish roster.` },
+    softcap:        { icon: '🛡️', title: 'Gear Softcap Advisor', desc: `Armor and dodge round to whole percentages, so gear points above a threshold buy nothing. Find the cheapest chest, pants and boots that hit the same effective percentage.` },
     'sp-advisor':   { icon: '🧮', title: 'Skill Point Advisor', desc: `Optimize your skill point allocation across different attributes and abilities.` },
   };
 
@@ -175,7 +177,7 @@ const ToolkitShell = (() => {
     nativeReplace = history.replaceState.bind(history);
     history.replaceState = function (s, t, url) {
       if (typeof url === 'string') {
-        const m = url.match(/^#(mu|buddy-finder|advisor|clockin|profit|wealth|sp-advisor)\b/);
+        const m = url.match(/^#(mu|buddy-finder|advisor|clockin|profit|wealth|softcap|sp-advisor)\b/);
         if (m) {
           const q = url.split('?')[1] || '';
           const u = new URLSearchParams(q).get('u');
@@ -358,7 +360,7 @@ const ToolkitShell = (() => {
     { title: '💰 Profits',    tools: ['buddy-finder', 'profit', 'wealth'], links: [
       { href: '#factory-tax', icon: '🧾', title: 'Factory Tax', desc: `Irish-owned factories that employ workers, grouped by the country they're based in — and the income tax that country takes off those wages.` },
     ] },
-    { title: '⚔️ Combat',   tools: ['mu'], links: [
+    { title: '⚔️ Combat',   tools: ['mu', 'softcap'], links: [
       { href: '#roster', icon: '🛰️', title: 'Battle Intel Ireland', desc: `Live Irish citizen roster: build, pill status, health, hunger, MU and last-online time. Useful for war planning.` },
     ] },
     { title: '🧮 Planning',  tools: ['sp-advisor'] },
