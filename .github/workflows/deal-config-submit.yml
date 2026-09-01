@@ -67,11 +67,11 @@ jobs:
           import json, os, re, sys, urllib.request, urllib.parse
           from datetime import date, datetime, timezone
 
-          ORIGIN = 'https://tools.we-ie.com'
+          ORIGIN = 'https://we.hawtre.net'
 
           def trpc(method, payload, timeout=20):
               inp = urllib.parse.quote(json.dumps(payload))
-              url = f'https://warera-proxy.r00ted82.workers.dev/trpc/{method}?input={inp}'
+              url = f'https://warera-proxy.0x5ca1ab1e.workers.dev/trpc/{method}?input={inp}'
               req = urllib.request.Request(url, headers={
                   'Origin': ORIGIN,
                   'Accept': 'application/json',

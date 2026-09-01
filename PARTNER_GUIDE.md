@@ -2,7 +2,7 @@
 
 This is the guide for any country with a factory tax-rebate arrangement with us. It explains how a deal gets set up, how it gets logged, and how you check your own numbers.
 
-**Page:** [tools.we-ie.com/#tax-deals](https://tools.we-ie.com/#tax-deals) (also linked from the **Partner tools** tab on the site).
+**Page:** [we.hawtre.net/#tax-deals](https://we.hawtre.net/#tax-deals) (also linked from the **Partner tools** tab on the site).
 
 ## What this actually does
 
@@ -21,7 +21,7 @@ Keep it private; don't post it publicly. If you don't have one yet, ask us for o
 
 ## Proposing a deal
 
-1. Go to the [#tax-deals](https://tools.we-ie.com/#tax-deals) page.
+1. Go to the [#tax-deals](https://we.hawtre.net/#tax-deals) page.
 2. Click **"+ Propose a new deal"**.
 3. Fill in:
    - **Deal name** — anything descriptive, e.g. "Ireland – Yemen Factory Tax Rebate".
@@ -40,7 +40,7 @@ If a submission fails, you'll see an error explaining why (wrong password, dates
 
 ## Viewing your data
 
-1. Go to the [#tax-deals](https://tools.we-ie.com/#tax-deals) page.
+1. Go to the [#tax-deals](https://we.hawtre.net/#tax-deals) page.
 2. Select your country from the first dropdown.
 3. Select the deal from the second dropdown.
 4. Enter your country's password.

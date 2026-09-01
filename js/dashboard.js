@@ -31,7 +31,7 @@
  *  honouring ?bypass=1.
  * ═══════════════════════════════════════════════════════════════════ */
 const DashboardTool = (() => {
-  const WS_BASE   = (typeof WARERASTATS_BASE !== 'undefined') ? WARERASTATS_BASE : 'https://warera-proxy.r00ted82.workers.dev/warerastats';
+  const WS_BASE   = (typeof WARERASTATS_BASE !== 'undefined') ? WARERASTATS_BASE : 'https://warera-proxy.0x5ca1ab1e.workers.dev/warerastats';
   const ITEMS_URL = `${WS_BASE}/items`;
   const WORK_FACTOR = 0.24;            // works/day per energy point (see daily-profit.js)
   const ACTIVE_MS = 24 * 3600 * 1000;  // < this since last clock-in → Active

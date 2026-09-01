@@ -1,6 +1,6 @@
 # War Era tools
 
-An Irish player's toolkit for [War Era](https://app.warera.io/). Live at [tools.we-ie.com](https://tools.we-ie.com).
+An Irish player's toolkit for [War Era](https://app.warera.io/). Live at [we.hawtre.net](https://we.hawtre.net).
 
 This is a static site: plain HTML, CSS, and vanilla JavaScript with no build step, no framework, and no bundler. You edit files, refresh the page, done. Everything runs in the browser. The only backend is a thin Cloudflare Worker that proxies the game's API and holds a couple of secrets.
 
@@ -95,8 +95,8 @@ Tools never touch each other. They share state only through the URL and through 
 **Constants**
 
 ```js
-API_BASE         = 'https://warera-proxy.r00ted82.workers.dev/trpc'
-WARERASTATS_BASE = 'https://warera-proxy.r00ted82.workers.dev/warerastats'
+API_BASE         = 'https://warera-proxy.0x5ca1ab1e.workers.dev/trpc'
+WARERASTATS_BASE = 'https://warera-proxy.0x5ca1ab1e.workers.dev/warerastats'
 GAME_BASE        = 'https://app.warera.io'
 IRELAND_COUNTRY_ID = '6813b6d446e731854c7ac7fe'
 ```
@@ -192,15 +192,18 @@ A searchable, timezone-aware log of region bunker activity for the BEER alliance
 
 ## Data layer
 
-All game data comes through one Cloudflare Worker at `warera-proxy.r00ted82.workers.dev`. It exposes these routes:
+All game data comes through one Cloudflare Worker at `warera-proxy.0x5ca1ab1e.workers.dev`. Its source lives in `worker/` — see `worker/README.md` for deploying it. It exposes these routes:
 
-- `/trpc/*` proxies the War Era Gateway (tRPC).
-- `/warerastats` proxies Hattorius's warerastats data (used for country industrialism in the advisor).
+- `/trpc/*` proxies the War Era Gateway (tRPC) at `api2.warera.io`, injecting the game API token.
+- `/warerastats/*` proxies Hattorius's warerastats data (used for country industrialism in the advisor).
 - `/waitlist-update` mutates the Buddy Finder waiting list (see below).
+- `/deal-config-submit` creates a tax deal from the Tax Deals dashboard.
 - `/notify-discord` forwards a message to the Battle Orders Discord webhook (held as a Worker secret).
-- `/monitored-update` is wired for a wealth-monitor watch-list but is currently unused — nothing calls it and there is no receiving workflow.
+- `/healthz` reports whether the game API token is configured.
 
-The Worker holds the secrets (the GitHub PAT for the waitlist). The browser never sees them. The whole site otherwise runs client-side and stores nothing about users, except the username and user ID of people who opt into the waiting list.
+The old Worker also carried a `/monitored-update` route for a wealth-monitor watch-list. Nothing called it and no workflow received it, so it was not carried over.
+
+The Worker holds the secrets — the game API token, and the GitHub PAT for the waitlist and deal routes. The browser never sees them. The whole site otherwise runs client-side and stores nothing about users, except the username and user ID of people who opt into the waiting list.
 
 Endpoints currently in use, for reference:
 

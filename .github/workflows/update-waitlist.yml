@@ -7,7 +7,7 @@
 # does not — removing a non-Irish entry that somehow snuck in is
 # desirable. The cleanup job (run daily) does its own checks.
 #
-# The gateway calls send an Origin: https://tools.we-ie.com header so the proxy's
+# The gateway calls send an Origin: https://we.hawtre.net header so the proxy's
 # CORS gate accepts them. Without that header, the proxy rejects
 # GitHub Action runners with HTTP 403.
 
@@ -50,7 +50,7 @@ jobs:
           from datetime import datetime, timezone
 
           IRELAND_COUNTRY_ID = '6813b6d446e731854c7ac7fe'
-          ORIGIN = 'https://tools.we-ie.com'
+          ORIGIN = 'https://we.hawtre.net'
 
           action   = os.environ.get('ACTION', '').strip()
           user_id  = os.environ.get('USER_ID', '').strip()
@@ -80,7 +80,7 @@ jobs:
           # same pattern as the cleanup job below.
           def trpc(method, payload, timeout=20):
               inp = urllib.parse.quote(json.dumps(payload))
-              url = f'https://warera-proxy.r00ted82.workers.dev/trpc/{method}?input={inp}'
+              url = f'https://warera-proxy.0x5ca1ab1e.workers.dev/trpc/{method}?input={inp}'
               req = urllib.request.Request(url, headers={
                   'Origin': ORIGIN,
                   'Accept': 'application/json',
@@ -199,11 +199,11 @@ jobs:
           from datetime import datetime, timezone
 
           ACTIONS_PER_ENERGY = 0.343
-          ORIGIN = 'https://tools.we-ie.com'
+          ORIGIN = 'https://we.hawtre.net'
 
           def trpc(method, payload, timeout=20):
               inp = urllib.parse.quote(json.dumps(payload))
-              url = f'https://warera-proxy.r00ted82.workers.dev/trpc/{method}?input={inp}'
+              url = f'https://warera-proxy.0x5ca1ab1e.workers.dev/trpc/{method}?input={inp}'
               req = urllib.request.Request(url, headers={
                   'Origin': ORIGIN,
                   'Accept': 'application/json',

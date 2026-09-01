@@ -34,8 +34,8 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-PROXY_BASE     = "https://warera-proxy.r00ted82.workers.dev/trpc"
-ORIGIN         = "https://tools.we-ie.com"
+PROXY_BASE     = "https://warera-proxy.0x5ca1ab1e.workers.dev/trpc"
+ORIGIN         = "https://we.hawtre.net"
 HTTP_TIMEOUT   = 30
 MAX_RETRIES    = 3
 RETRY_BACKOFF  = 4

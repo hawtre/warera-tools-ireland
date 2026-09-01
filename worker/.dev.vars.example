@@ -1,0 +1,4 @@
+# Copy to worker/.dev.vars for `wrangler dev`. Gitignored — never commit the real file.
+WARERA_API_KEY=""
+GITHUB_DISPATCH_TOKEN=""
+DISCORD_WEBHOOK_URL=""

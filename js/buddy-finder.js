@@ -45,7 +45,7 @@ const BuddyFinderTool = (() => {
   // Worker route that fires repository_dispatch with the PAT attached
   // server-side. Same Worker handles the tRPC proxy.
   const WAITLIST_UPDATE_URL =
-    'https://warera-proxy.r00ted82.workers.dev/waitlist-update';
+    'https://warera-proxy.0x5ca1ab1e.workers.dev/waitlist-update';
 
   // DOM
   const $wlInput   = document.getElementById('bf-waitlist-username');
@@ -299,7 +299,7 @@ const BuddyFinderTool = (() => {
 
     // Next-steps panel — only when there's at least one match to act on.
     const dmTemplate =
-`Hey! I found you on the buddy finder at tools.we-ie.com. Want to set up a buddy arrangement? The idea is we both hire each other at minimum wage so our companies get a worker without paying real wages. Our stats look like a good match. Let me know if you're up for it!`;
+`Hey! I found you on the buddy finder at we.hawtre.net. Want to set up a buddy arrangement? The idea is we both hire each other at minimum wage so our companies get a worker without paying real wages. Our stats look like a good match. Let me know if you're up for it!`;
 
     html += `
       <div class="bf-next-steps">

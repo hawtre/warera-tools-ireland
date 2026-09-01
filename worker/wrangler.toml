@@ -1,0 +1,19 @@
+name = "warera-proxy"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+workers_dev = true
+
+[vars]
+ALLOWED_ORIGINS = "https://we.hawtre.net,http://localhost"
+
+# owner/repo that receives repository_dispatch events from /waitlist-update
+# and /deal-config-submit.
+GITHUB_REPO = "hawtre/warera-tools-ireland"
+
+# Secrets
+#
+#   wrangler secret put WARERA_API_KEY         # required: game API token
+#   wrangler secret put GITHUB_DISPATCH_TOKEN  # optional: fine-grained PAT,
+#                                              #   Contents:read + Actions:write
+#   wrangler secret put DISCORD_WEBHOOK_URL    # optional: Discord webhook

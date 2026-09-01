@@ -272,7 +272,7 @@ const TaxDealDashboardTool = (() => {
   // with the GitHub PAT attached server-side. This route does not exist yet
   // on the warera-proxy Worker — it needs to be added there (mirroring the
   // existing /waitlist-update route) before "Propose a deal" will work.
-  const DEAL_SUBMIT_URL = 'https://warera-proxy.r00ted82.workers.dev/deal-config-submit';
+  const DEAL_SUBMIT_URL = 'https://warera-proxy.0x5ca1ab1e.workers.dev/deal-config-submit';
 
   // Paper "Send money to country" transfer tax — 50% (paper units) to
   // allies, 100% to everyone else. Same rule + lightweight live lookups

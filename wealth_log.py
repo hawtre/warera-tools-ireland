@@ -3,7 +3,7 @@
 wealth_log.py
 
 Wealth tracker for the Wealth Monitor tool (the #wealth tab on
-tools.we-ie.com). Snapshots the wealth of EVERY Irish citizen each run.
+we.hawtre.net). Snapshots the wealth of EVERY Irish citizen each run.
 
 STORAGE — per-user files, daily resolution:
   Each citizen gets data/wealth/<userId>.json:
@@ -23,7 +23,7 @@ the exact figures the in-game profile shows under WEALTH.
 
 ORIGIN header: the warera-proxy Worker rejects GitHub Action runners (HTTP
 403) unless the request carries a recognised Origin. We send
-tools.we-ie.com on every call, same as the other workflows.
+we.hawtre.net on every call, same as the other workflows.
 
 Run:
   python wealth_log.py
@@ -39,8 +39,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Config
-PROXY_BASE         = "https://warera-proxy.r00ted82.workers.dev/trpc"
-ORIGIN             = "https://tools.we-ie.com"
+PROXY_BASE         = "https://warera-proxy.0x5ca1ab1e.workers.dev/trpc"
+ORIGIN             = "https://we.hawtre.net"
 IRELAND_COUNTRY_ID = "6813b6d446e731854c7ac7fe"
 ROOT               = Path(__file__).parent
 WEALTH_DIR         = ROOT / "data" / "wealth"

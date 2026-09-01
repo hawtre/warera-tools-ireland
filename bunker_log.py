@@ -3,7 +3,7 @@
 bunker_log.py
 
 Region event logger for the bunker monitor tool (lives under the BEER tab on
-tools.we-ie.com, alongside other alliance-block tools added over time).
+we.hawtre.net, alongside other alliance-block tools added over time).
 
 Polls every 2h via GitHub Actions cron, takes one bulk snapshot of every region
 in the game, diffs it against the previous snapshot, and appends whatever
@@ -70,7 +70,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 # Config
-PROXY_BASE     = "https://warera-proxy.r00ted82.workers.dev/trpc"
+PROXY_BASE     = "https://warera-proxy.0x5ca1ab1e.workers.dev/trpc"
 DATA_DIR       = Path(__file__).parent / "data"
 STATE_FILE     = DATA_DIR / "state.json"
 EVENTS_FILE    = DATA_DIR / "events.json"

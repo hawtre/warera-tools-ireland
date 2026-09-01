@@ -64,8 +64,8 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 # ── Config ────────────────────────────────────────────────────────────────────
-PROXY_BASE         = "https://warera-proxy.r00ted82.workers.dev/trpc"
-ORIGIN             = "https://tools.we-ie.com"
+PROXY_BASE         = "https://warera-proxy.0x5ca1ab1e.workers.dev/trpc"
+ORIGIN             = "https://we.hawtre.net"
 IRELAND_COUNTRY_ID = "6813b6d446e731854c7ac7fe"
 ROOT               = Path(__file__).parent
 TAX_DIR            = ROOT / "data" / "tax"

@@ -12,6 +12,14 @@ beer-payload.js
 tax-payload.js
 
 # Local-only dev helper: serves the site and proxies the API with the Origin
-# spoofed to tools.we-ie.com (works around the Worker's CORS allowlist).
+# spoofed to we.hawtre.net (works around the Worker's CORS allowlist).
 # Testing only — never deployed.
 tools/dev-proxy.mjs
+
+# Cloudflare Worker local secrets - never commit.
+worker/.dev.vars
+worker/node_modules/
+worker/.wrangler/
+
+# Tools
+.idea/
