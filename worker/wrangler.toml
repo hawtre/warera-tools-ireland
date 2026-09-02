@@ -6,7 +6,7 @@ workers_dev = true
 preview_urls = false
 
 [vars]
-ALLOWED_ORIGINS = "https://we.hawtre.net,http://localhost"
+ALLOWED_ORIGINS = "https://we.hawtre.net"
 
 # owner/repo that receives repository_dispatch events from /waitlist-update
 # and /deal-config-submit.
