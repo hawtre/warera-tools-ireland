@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: bunker-log
+  group: main-writer
   cancel-in-progress: false
 
 jobs:
@@ -42,6 +42,7 @@ jobs:
             echo "no changes"
           else
             git commit -m "bunker-log: $(date -u +%FT%TZ)"
+            git pull --rebase origin main
             git push
           fi
 # registered on fork 2026-09-01

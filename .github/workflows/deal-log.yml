@@ -27,7 +27,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: deal-log
+  group: main-writer
   cancel-in-progress: false
 
 jobs:
@@ -52,5 +52,6 @@ jobs:
             echo "no changes to commit"
           else
             git commit -m "deal-log: $(date -u +%FT%TZ)"
+            git pull --rebase origin main
             git push
           fi

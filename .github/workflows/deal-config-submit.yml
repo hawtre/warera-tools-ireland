@@ -43,7 +43,7 @@ permissions:
   actions: write   # needed to dispatch deal-log.yml after the commit
 
 concurrency:
-  group: deal-config-write
+  group: main-writer
   cancel-in-progress: false
 
 jobs:
@@ -205,6 +205,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "${COMMIT_MSG:-Add new tax deal}"
+          git pull --rebase origin main
           git push
           echo "committed=true" >> "$GITHUB_OUTPUT"
 

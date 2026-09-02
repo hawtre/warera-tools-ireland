@@ -25,7 +25,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: waitlist-write
+  group: main-writer
   cancel-in-progress: false
   
 jobs:
@@ -172,6 +172,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "${COMMIT_MSG:-Update waitlist}"
+          git pull --rebase origin main
           git push
 
   # ────────────────────────────────────────────────────────────────
@@ -330,4 +331,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -m "${COMMIT_MSG:-Auto-cleanup waitlist}"
+          git pull --rebase origin main
           git push
