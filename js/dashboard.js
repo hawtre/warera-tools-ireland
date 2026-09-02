@@ -20,8 +20,9 @@
  *
  *  Reuse: the economic model (production-bonus maths, net-per-PP pricing,
  *  salary modelling, mission rewards) and the clock-in/status logic are
- *  ported from js/daily-profit.js and js/clockin.js so the numbers and
- *  thresholds agree with the full tools.
+ *  ported from js/daily-profit.js and js/clockin.js, and the migration
+ *  scoring from js/advisor.js, so the numbers and thresholds agree with
+ *  the full tools.
  *
  *  Cards fill independently — cheap ones (Wealth, MU) land within a
  *  second; the heavy economy load (Migration + Profit) lands last. Each
@@ -36,7 +37,8 @@ const DashboardTool = (() => {
   const WORK_FACTOR = 0.24;            // works/day per energy point (see daily-profit.js)
   const ACTIVE_MS = 24 * 3600 * 1000;  // < this since last clock-in → Active
   const WINDOW_MS = 48 * 3600 * 1000;  // < this → Slowing; older/never → Idle
-  const MIN_MIGRATION_GAIN = 1;        // ignore sub-1% "improvements" as noise
+  const MIN_MIGRATION_GAIN = 2;        // advisor.js OPTIMAL_THRESHOLD — keep in sync
+  const HUGE_MIGRATION_GAIN = 20;      // advisor.js HUGE_THRESHOLD — keep in sync
   const CLOCKIN_PREVIEW = 6;           // worker rows shown before "show more"
 
   const ITEM_NAME = {
@@ -95,7 +97,8 @@ const DashboardTool = (() => {
       : 0;
     const total = strategic + specialisation + deposit + depositCountry;
     const tax = country.taxes?.income ?? 0;
-    return { total, tax, region, country };
+    const netMult = (1 + total / 100) * (1 - tax / 100);
+    return { total, tax, netMult, region, country };
   }
 
   /* ── DOM ─────────────────────────────────────────────────────────── */
@@ -675,7 +678,7 @@ const DashboardTool = (() => {
         const region  = regionsObj[c.region];
         const country  = region ? countryById[region.country] : null;
         c._region = region;
-        c._bonus  = computeBonus(country, region, c.itemCode) || { total: 0, tax: country?.taxes?.income ?? null, country };
+        c._bonus  = computeBonus(country, region, c.itemCode) || { total: 0, tax: country?.taxes?.income ?? null, netMult: 1, country };
         c._netPP  = netPerPP(c.itemCode, 0);
         c._dailyAE = aeDailyProd(c.activeUpgradeLevels?.automatedEngine);
         c._aeBonus = c._dailyAE * (1 + c._bonus.total / 100);
@@ -718,33 +721,54 @@ const DashboardTool = (() => {
         </div>`);
 
       // ── Migration ──
+      // Scored exactly like advisor.js: candidates rank on raw production
+      // bonus normally, but on tax-adjusted take-home (netMult) for the
+      // companies you work in yourself — a higher-bonus region behind a
+      // higher income tax can be a net loss. `gain` is the *relative*
+      // improvement in output (advisor.js improvementFor), not the
+      // difference in percentage points: +2.5pp on top of a 50% bonus is
+      // only 1.7% more iron, which is why raw pp overstated the case.
+      const worksIn = new Set(
+        workerEntries.filter(w => w.userId === full._id).map(w => w.companyId));
+      const scoreOf = (b, worksHere) =>
+        worksHere ? (b.netMult ?? (1 + b.total / 100)) : 1 + b.total / 100;
+
       const bestForItem = {};
-      for (const code of ownedItems) {
-        let best = { total: 0, country: null, region: null };
+      const bestFor = (code, worksHere) => {
+        const key = `${code}|${worksHere ? 1 : 0}`;
+        if (bestForItem[key]) return bestForItem[key];
+        let best = { total: 0, netMult: 0, country: null, region: null };
         for (const cid in countryById) {
           const country = countryById[cid];
           for (const region of (regionsByCountry[cid] || [])) {
             const b = computeBonus(country, region, code);
-            if (b && b.total > best.total) best = { total: b.total, country, region };
+            if (b && scoreOf(b, worksHere) > scoreOf(best, worksHere)) {
+              best = { total: b.total, netMult: b.netMult, country, region };
+            }
           }
         }
-        bestForItem[code] = best;
-      }
+        return (bestForItem[key] = best);
+      };
+
       const migs = companies.map(c => {
-        const best = bestForItem[c.itemCode] || { total: 0 };
-        return { c, best, gain: best.total - c._bonus.total };
+        const worksHere = worksIn.has(c._id);
+        const best = bestFor(c.itemCode, worksHere);
+        const cur  = scoreOf(c._bonus, worksHere);
+        const gain = cur > 0 ? (scoreOf(best, worksHere) - cur) / cur * 100 : 0;
+        return { c, best, gain, worksHere };
       }).sort((a, b) => b.gain - a.gain);
-      const improvable = migs.filter(m => m.gain > MIN_MIGRATION_GAIN);
-      const placed = migs.filter(m => m.gain <= MIN_MIGRATION_GAIN);
+      const improvable = migs.filter(m => m.gain >= MIN_MIGRATION_GAIN);
+      const placed = migs.filter(m => m.gain < MIN_MIGRATION_GAIN);
       setNote('migration', `${companies.length} compan${companies.length === 1 ? 'y' : 'ies'}`);
 
       const migRow = (m, ok) => {
         const c = m.c;
         const curRegion = c._region?.name || '—';
         const curTax = c._bonus.tax != null ? ` · ${c._bonus.tax}% tax` : '';
+        const gainLabel = m.worksHere ? 'more take-home' : 'more output';
         const verdict = ok
           ? `<span class="dash-verdict ok">✓ Best placed</span>`
-          : `<span class="dash-verdict move">→ ${escapeHtml(m.best.country?.name || 'elsewhere')}${m.best.region ? ' · ' + escapeHtml(m.best.region.name) : ''}<b>${pct(m.gain)}</b></span>`;
+          : `<span class="dash-verdict move">→ ${escapeHtml(m.best.country?.name || 'elsewhere')}${m.best.region ? ' · ' + escapeHtml(m.best.region.name) : ''}<b>${pct(m.gain)} ${gainLabel}</b></span>`;
         return `<div class="dash-row mig">
           <div class="dash-row-main">
             <div class="dash-row-title">${iconHtml(c.itemCode)} <strong>${escapeHtml(c.name || itemName(c.itemCode))}</strong></div>
@@ -758,9 +782,9 @@ const DashboardTool = (() => {
       if (improvable.length) {
         const topGain = improvable[0].gain;   // migs are sorted by gain, descending
         const who = improvable.length === 1 ? 'Your company' : `${improvable.length} of your companies`;
-        const urgency = topGain >= 15 ? 'Worth relocating now.' : 'Worth a move.';
+        const urgency = topGain >= HUGE_MIGRATION_GAIN ? 'Worth relocating now.' : 'Worth a move.';
         html += `<div class="dash-warn">${pill('⚠ Move suggested', 'warn')}
-          <span>${who} could produce more elsewhere — up to <strong>+${topGain.toFixed(1)}%</strong>. ${urgency}</span></div>`;
+          <span>${who} could produce more elsewhere — up to <strong>+${topGain.toFixed(1)}%</strong> more output. ${urgency}</span></div>`;
         html += `<div class="dash-rows">${improvable.map(m => migRow(m, false)).join('')}</div>`;
         html += `<a class="dash-cta" href="#advisor?u=${encodeURIComponent(full.username)}">Plan the move →</a>`;
       }
