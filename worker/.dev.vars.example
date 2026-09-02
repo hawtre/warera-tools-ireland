@@ -1,4 +1,5 @@
-# Copy to worker/.dev.vars for `wrangler dev`. Gitignored — never commit the real file.
+# Copy to worker/.dev.vars for `wrangler dev`. Gitignored - never commit the real file.
 WARERA_API_KEY=""
 GITHUB_DISPATCH_TOKEN=""
 DISCORD_WEBHOOK_URL=""
+ALLOWED_ORIGINS="http://localhost:8000,http://127.0.0.1:8000"

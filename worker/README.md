@@ -78,4 +78,4 @@ wrangler dev                     # http://localhost:8787
 ```
 
 `.dev.vars` is gitignored. `http://localhost` is already in
-`ALLOWED_ORIGINS` so the site's own dev server can call a deployed Worker.
+`ALLOWED_ORIGINS` so the site's own dev server can call a local development Worker.

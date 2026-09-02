@@ -44,8 +44,7 @@ const BuddyFinderTool = (() => {
     'https://api.github.com/repos/hawtre/warera-tools-ireland/contents/waitlist.json?ref=main';
   // Worker route that fires repository_dispatch with the PAT attached
   // server-side. Same Worker handles the tRPC proxy.
-  const WAITLIST_UPDATE_URL =
-    'https://warera-proxy.0x5ca1ab1e.workers.dev/waitlist-update';
+  const WAITLIST_UPDATE_URL = `${WORKER_BASE}/waitlist-update`;
 
   // DOM
   const $wlInput   = document.getElementById('bf-waitlist-username');

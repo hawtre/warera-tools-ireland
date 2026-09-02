@@ -99,11 +99,7 @@ const AdvisorTool = (() => {
 
   // Companion endpoint for industrialism. Lives on Hattorius's
   // warerastats.io, proxied through the same worker that fronts the
-  // gateway. Set in the merged tool's CFG block; here we derive it from
-  // the existing tRPC base so we don't need a second config knob.
-  const WARERASTATS_BASE = (typeof CFG !== 'undefined' && CFG.API_BASE)
-    ? CFG.API_BASE.replace(/\/trpc\/?$/, '') + '/warerastats'
-    : 'https://warera-proxy.0x5ca1ab1e.workers.dev/warerastats';
+  // gateway - WARERASTATS_BASE comes from shared.js.
 
   const $grid     = document.getElementById('adv-grid');
   const $hint     = document.getElementById('adv-hint');

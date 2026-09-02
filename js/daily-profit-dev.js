@@ -7,7 +7,7 @@
  *  DailyProfitDevTool.activate({u}).
  * ═══════════════════════════════════════════════════════════════════ */
 const DailyProfitDevTool = (() => {
-  const WS_BASE = (typeof WARERASTATS_BASE !== 'undefined') ? WARERASTATS_BASE : 'https://warera-proxy.0x5ca1ab1e.workers.dev/warerastats';
+  const WS_BASE = WARERASTATS_BASE;   // shared.js; localhost points it at `wrangler dev`
   // Prices via the proxy (it adds CORS) — a direct api.warerastats.io fetch
   // is blocked cross-origin in the browser, even though /countries via the
   // proxy works.

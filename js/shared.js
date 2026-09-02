@@ -4,8 +4,52 @@
  *  formatting helpers, and the step/status panel constructors used by
  *  MU and the Advisor.
  * ═══════════════════════════════════════════════════════════════════ */
-const API_BASE         = 'https://warera-proxy.0x5ca1ab1e.workers.dev/trpc';
-const WARERASTATS_BASE = 'https://warera-proxy.0x5ca1ab1e.workers.dev/warerastats';
+/*
+ *  Every external API the site touches goes through one Cloudflare Worker,
+ *  and WORKER_BASE is the only place its origin is configured — the route
+ *  constants below and each tool's own Worker URLs all derive from it.
+ *
+ *  On localhost it points at `wrangler dev` (worker/README.md) so local work
+ *  runs on a development API key instead of production's quota. Aim a page
+ *  at a different Worker with ?proxy=<origin>, which sticks for the tab:
+ *  #advisor?proxy=https://warera-proxy.0x5ca1ab1e.workers.dev
+ *
+ *  The param is `proxy`, not `worker`: a "worker" in this game is a player
+ *  (see worker.getWorkers, clock-in wages), so ?worker=<username> is an easy
+ *  thing to type by mistake. Anything that isn't an http(s) URL is ignored
+ *  with a console warning rather than stored, so a stray value can't quietly
+ *  break every request in the tab.
+ */
+const WORKER_PROD = 'https://warera-proxy.0x5ca1ab1e.workers.dev';
+const WORKER_BASE = (() => {
+  const isProxyUrl = v => {
+    try {
+      const { protocol } = new URL(v);
+      return protocol === 'http:' || protocol === 'https:';
+    } catch { return false; }
+  };
+
+  const hashQuery = location.hash.split('?')[1] || '';
+  const raw = new URLSearchParams(hashQuery).get('proxy')
+           || new URLSearchParams(location.search).get('proxy');
+  let override = null;
+  if (raw && isProxyUrl(raw)) override = raw;
+  else if (raw) console.warn(`ignoring ?proxy=${raw} — not an http(s) URL`);
+
+  let saved = null;
+  try {
+    if (override) sessionStorage.setItem('proxyBase', override);
+    saved = sessionStorage.getItem('proxyBase');
+  } catch { /* storage blocked; an override still applies to this load */ }
+  const chosen = override || saved;
+  if (chosen) return chosen.replace(/\/+$/, '');
+  return /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname)
+    ? 'http://localhost:8787'
+    : WORKER_PROD;
+})();
+
+const API_BASE         = `${WORKER_BASE}/trpc`;
+const WARERASTATS_BASE = `${WORKER_BASE}/warerastats`;
 const GAME_BASE        = 'https://app.warera.io';
 
 // Canonical Ireland country ID. Shared by the MU tool's citizenship
