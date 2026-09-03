@@ -126,12 +126,6 @@ const DailyProfitTool = (() => {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }
-  async function mapConcurrent(items, worker, concurrency = 12) {
-    const out = new Array(items.length); let i = 0;
-    async function pump() { while (i < items.length) { const idx = i++; try { out[idx] = await worker(items[idx]); } catch { out[idx] = null; } } }
-    await Promise.all(Array(Math.min(concurrency, items.length || 1)).fill(0).map(pump));
-    return out;
-  }
 
   async function resolveUsername(username) {
     const needle = username.trim().toLowerCase();
@@ -139,7 +133,7 @@ const DailyProfitTool = (() => {
     const res = await dp_trpc('search.searchAnything', { searchText: username });
     const ids = (res?.userIds || []).slice(0, 10);
     if (!ids.length) return null;
-    const profiles = await mapConcurrent(ids, async (id) => { try { return await dp_trpc('user.getUserLite', { userId: id }); } catch { return null; } });
+    const profiles = await trpcManyValues('user.getUserLite', ids.map(userId => ({ userId })));
     return profiles.find(u => u && typeof u.username === 'string' && u.username.toLowerCase() === needle) || null;
   }
 
@@ -245,12 +239,11 @@ const DailyProfitTool = (() => {
       ]);
       const companyIds = companyList?.items || [];
       steps.setStep(2, 'active', { sub: 'Loading company details', count: `0/${companyIds.length}` });
-      let loaded = 0;
-      const allCompanies = (await mapConcurrent(companyIds, async (id) => {
-        const c = await dp_trpc('company.getById', { companyId: id }).catch(() => null);
-        steps.setStep(2, 'active', { count: `${++loaded}/${companyIds.length}` });
-        return c;
-      })).filter(Boolean);
+      const allCompanies = (await trpcManyValues('company.getById',
+        companyIds.map(companyId => ({ companyId })),
+        { onProgress: (done, total) => {
+          steps.setStep(2, 'active', { count: `${done}/${total}` });
+        } })).filter(Boolean);
       // Disabled companies (those with a `disabledAt` timestamp) produce nothing
       // and aren't worked — exclude them from every calculation.
       const companies   = allCompanies.filter(c => !c.disabledAt);
@@ -262,9 +255,10 @@ const DailyProfitTool = (() => {
       });
       const uniqueWorkerIds = [...new Set(workerEntries.map(w => w.userId).filter(id => id !== user._id))];
       const workerProfiles = {};
-      await mapConcurrent(uniqueWorkerIds, async (id) => {
-        const lite = await dp_trpc('user.getUserLite', { userId: id }).catch(() => null);
-        if (lite) workerProfiles[id] = lite;
+      const workerLites = await trpcManyValues('user.getUserLite',
+        uniqueWorkerIds.map(userId => ({ userId })));
+      workerLites.forEach((lite, index) => {
+        if (lite) workerProfiles[uniqueWorkerIds[index]] = lite;
       });
 
       // Buddy detection: the owner's energy "job" is user.company. If that
@@ -301,12 +295,15 @@ const DailyProfitTool = (() => {
       const prices = {};
       const priceCodes = Object.keys(META).filter(c => gameItems[c]);
       steps.setStep(3, 'active', { sub: 'Pricing items from the live market', count: `0/${priceCodes.length}` });
-      let pd = 0;
-      await mapConcurrent(priceCodes, async (code) => {
-        const ob = await dp_trpc('tradingOrder.getTopOrders', { itemCode: code }).catch(() => null);
-        const p  = orderLowestOffer(ob) ?? orderMid(ob) ?? avgPrices[code];
+      const books = await trpcManyValues('tradingOrder.getTopOrders',
+        priceCodes.map(itemCode => ({ itemCode })),
+        { onProgress: (done, total) => {
+          steps.setStep(3, 'active', { count: `${done}/${total}` });
+        } });
+      books.forEach((ob, index) => {
+        const code = priceCodes[index];
+        const p = orderLowestOffer(ob) ?? orderMid(ob) ?? avgPrices[code];
         if (p != null) prices[code] = p;
-        steps.setStep(3, 'active', { count: `${++pd}/${priceCodes.length}` });
       });
       const aeLevels = gameConfig?.upgradesConfig?.automatedEngine?.levels || {};
       const aeDailyProd = (lvl) => aeLevels[lvl]?.stats?.dailyProd || 0;
@@ -326,13 +323,15 @@ const DailyProfitTool = (() => {
 
       const allCountries = Array.isArray(allCountriesRaw) ? allCountriesRaw : (allCountriesRaw?.items || []);
       steps.setStep(3, 'active', { sub: 'Loading country bonuses', count: `0/${allCountries.length}` });
-      let cl = 0;
       const countryById = {};
-      await mapConcurrent(allCountries, async (c) => {
-        const full = await dp_trpc('country.getCountryById', { countryId: c._id }).catch(() => null);
-        if (full) countryById[c._id] = full;
-        steps.setStep(3, 'active', { count: `${++cl}/${allCountries.length}` });
-      }, 25);
+      const fullCountries = await trpcManyValues('country.getCountryById',
+        allCountries.map(c => ({ countryId: c._id })),
+        { onProgress: (done, total) => {
+          steps.setStep(3, 'active', { count: `${done}/${total}` });
+        } });
+      fullCountries.forEach((full, index) => {
+        if (full) countryById[allCountries[index]._id] = full;
+      });
       (Array.isArray(wsCountries) ? wsCountries : []).forEach(c => {
         if (c && c.countryId != null && c.industrialism != null && countryById[c.countryId]) countryById[c.countryId].industrialism = c.industrialism;
       });

@@ -73,7 +73,6 @@ const GearSoftcapTool = (() => {
   // so a page of recent sales per item code provides a price-per-ROLL curve.
   const PRICE_SAMPLES = 100;              // per item code; ~24h of sales at current volume
   const PRICE_TTL_MS  = 10 * 60 * 1000;   // prices move; config doesn't
-  const PRICE_BATCH_SIZE = 20;            // inputs per tRPC batch; all 18 codes fit in one
 
   // The two soft-capped stats and the equipment slots that feed each one.
   // Armor comes from two slots, so its gear requirement is a combined total
@@ -243,34 +242,21 @@ const GearSoftcapTool = (() => {
       }
     }
 
-    const chunks = [];
-    for (let start = 0; start < wanted.length; start += PRICE_BATCH_SIZE) {
-      chunks.push(wanted.slice(start, start + PRICE_BATCH_SIZE));
-    }
-
-    let done = 0;
     const byCode = {};
-    await Promise.all(chunks.map(async chunk => {
-      let settled;
-      try {
-        settled = await trpc('transaction.getPaginatedTransactions',
-          chunk.map(({ tier }) => ({
-            transactionType: 'itemMarket', itemCode: tier.code, limit: PRICE_SAMPLES,
-          })),
-          { batch: true, retry: true, timeoutMs: 30_000 });
-      } catch {
-        settled = chunk.map(() => ({ status: 'rejected' }));
-      }
-      settled.forEach((result, index) => {
-        const { tier, statKey } = chunk[index];
-        const items = result.status === 'fulfilled' ? result.value?.items : null;
-        if (!Array.isArray(items) || !items.length) return;
-        const curve = buildCurve(items, statKey, tier.min, tier.max);
-        if (curve) byCode[tier.code] = curve;
-      });
-      done += chunk.length;
-      steps.setStep(4, 'active', { count: `${done}/${wanted.length}` });
-    }));
+    const pages = await trpcManyValues('transaction.getPaginatedTransactions',
+      wanted.map(({ tier }) => ({
+        transactionType: 'itemMarket', itemCode: tier.code, limit: PRICE_SAMPLES,
+      })),
+      { onProgress: (done, total) => {
+        steps.setStep(4, 'active', { count: `${done}/${total}` });
+      } });
+    pages.forEach((page, index) => {
+      const { tier, statKey } = wanted[index];
+      const items = page?.items;
+      if (!Array.isArray(items) || !items.length) return;
+      const curve = buildCurve(items, statKey, tier.min, tier.max);
+      if (curve) byCode[tier.code] = curve;
+    });
 
     // Don't cache a total failure - that's an outage, and the next click
     // should be a real retry rather than 10 minutes of cached nothing.
@@ -461,15 +447,8 @@ const GearSoftcapTool = (() => {
       count: `0/${top.length}`,
     });
 
-    let settled;
-    try {
-      settled = await trpc('user.getUserLite',
-        top.map(userId => ({ userId })),
-        { batch: true, retry: true, timeoutMs: 30_000 });
-    } catch {
-      settled = top.map(() => ({ status: 'rejected' }));
-    }
-    const profiles = settled.map(r => (r.status === 'fulfilled' ? r.value : null));
+    const profiles = await trpcManyValues('user.getUserLite',
+      top.map(userId => ({ userId })));
     steps.setStep(1, 'active', { count: `${profiles.filter(Boolean).length}/${top.length}` });
 
     const normalise = s => (s || '').toLowerCase().trim();

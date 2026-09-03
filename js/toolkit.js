@@ -224,14 +224,16 @@ const ToolkitShell = (() => {
     })();
   }
 
+  /*
+   *  Warm every country's full record. This uses the same batched call the
+   *  tools themselves make (trpcMany, default chunk size), which matters:
+   *  the resolved cache keys a batch by its whole input array, so warming
+   *  one country at a time would leave zero hits for a tool that then asks
+   *  for them in batches. Same shape in, same shape out.
+   */
   async function warmCountries(arr) {
-    const chunk = 20;
-    for (let i = 0; i < arr.length; i += chunk) {
-      await Promise.allSettled(
-        arr.slice(i, i + chunk).map(c =>
-          c?._id ? trpc('country.getCountryById', { countryId: c._id }, { retry: true }) : null)
-      );
-    }
+    await trpcMany('country.getCountryById',
+      arr.filter(c => c?._id).map(c => ({ countryId: c._id })));
   }
 
   function markReady() {

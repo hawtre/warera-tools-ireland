@@ -118,15 +118,11 @@ const SkillPointAdvisorTool = (() => {
     const candidateIds = (searchRes?.userIds || []).slice(0, 10);
     if (candidateIds.length === 0) return null;
 
-    for (const id of candidateIds) {
-      let u;
-      try { u = await trpc('user.getUserLite', { userId: id }, { retry: true }); }
-      catch { continue; }
-      if (u && typeof u.username === 'string' && u.username.toLowerCase() === needle) {
-        return u;
-      }
-    }
-    return null;
+    const profiles = await trpcManyValues('user.getUserLite',
+      candidateIds.map(userId => ({ userId })));
+    return profiles.find(u =>
+      u && typeof u.username === 'string' && u.username.toLowerCase() === needle
+    ) || null;
   }
 
   /* ── Auto-population from a resolved profile ─────────────────────

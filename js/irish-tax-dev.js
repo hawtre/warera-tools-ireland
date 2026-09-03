@@ -316,14 +316,29 @@ const IrishTaxDevTool = (() => {
   // sellerId) so each worker's tax can later be split by their citizenship for
   // the settlement calc. Only workers that map to one of this owner's factories
   // (present in workerToCompany) are counted.
-  async function paidWagesByWorker(ownerId, workerToCompany) {
+  /** @returns {Object} The tRPC input for an owner's first page of paid wages. */
+  function wagePageInput(ownerId) {
+    return { userId: ownerId, transactionType: 'wage', limit: 100 };
+  }
+
+  /*
+   *  Cursor pagination can't be batched wholesale, but the first page can —
+   *  and inside the 24h window most owners never need a second one. The
+   *  caller batch-fetches page one for every owner and passes it in as
+   *  `firstPage`; only owners with more payroll than one page holds fall
+   *  back to sequential requests from page two on.
+   */
+  async function paidWagesByWorker(ownerId, workerToCompany, firstPage = null) {
     const cutoff = Date.now() - WAGE_WINDOW_MS;
     const byWorker = {};
+    let pending = firstPage;
     let cursor = null, pages = 0, older = false;
     while (pages < WAGE_MAX_PAGES && !older) {
-      const input = { userId: ownerId, transactionType: 'wage', limit: 100 };
+      const input = wagePageInput(ownerId);
       if (cursor) input.cursor = cursor;
-      const page = await it_trpc('transaction.getPaginatedTransactions', input).catch(() => null);
+      let page = pending;
+      pending = null;
+      if (!page) page = await it_trpc('transaction.getPaginatedTransactions', input).catch(() => null);
       if (!page) break;
       const items = page.items || page.data || [];
       for (const tx of items) {
@@ -422,10 +437,13 @@ const IrishTaxDevTool = (() => {
       const factories = {};          // companyId -> { id, name, itemCode, ownerId, workers: [ids] }
       const ownerWorkerCompany = {}; // ownerId  -> Map(workerId -> companyId)
       const owners = [];
-      let d2 = 0;
-      await mapConcurrent(citizens, async (cid) => {
-        const res = await it_trpc('worker.getWorkers', { userId: cid }).catch(() => null);
-        d2++; steps.setStep(2, 'active', { count: `${d2}/${citizens.length}` });
+      const rosters = await trpcManyValues('worker.getWorkers',
+        citizens.map(userId => ({ userId })),
+        { timeoutMs: 20000, onProgress: (done, total) => {
+          steps.setStep(2, 'active', { count: `${done}/${total}` });
+        } });
+      rosters.forEach((res, rosterIndex) => {
+        const cid = citizens[rosterIndex];
         const wpc = res?.workersPerCompany || [];
         const wmap = new Map();
         let has = false;
@@ -442,7 +460,7 @@ const IrishTaxDevTool = (() => {
           }
         }
         if (has) { owners.push(cid); ownerWorkerCompany[cid] = wmap; }
-      }, 20);
+      });
       const companyIds = Object.keys(factories);
       steps.setStep(2, 'done', { count: `${companyIds.length} factories · ${owners.length} Irish owners` });
 
@@ -451,20 +469,18 @@ const IrishTaxDevTool = (() => {
       // 3) Factory location → country → income-tax rate
       steps.setStep(3, 'active', { sub: 'Loading factory locations & tax rates' });
       const compById = {};
-      await mapConcurrent(companyIds, async (id) => {
-        const co = await it_trpc('company.getById', { companyId: id }).catch(() => null);
-        if (co) compById[id] = co;
-      }, 20);
+      const comps = await trpcManyValues('company.getById',
+        companyIds.map(companyId => ({ companyId })), { timeoutMs: 20000 });
+      comps.forEach((co, index) => { if (co) compById[companyIds[index]] = co; });
       const [regionsObj, allCountriesRaw] = await Promise.all([
         it_trpc('region.getRegionsObject', {}),
         it_trpc('country.getAllCountries', {}),
       ]);
       const allCountries = Array.isArray(allCountriesRaw) ? allCountriesRaw : (allCountriesRaw?.items || []);
       const countryById = {};
-      await mapConcurrent(allCountries, async (c) => {
-        const f = await it_trpc('country.getCountryById', { countryId: c._id }).catch(() => null);
-        if (f) countryById[c._id] = f;
-      }, 25);
+      const fullCountries = await trpcManyValues('country.getCountryById',
+        allCountries.map(c => ({ countryId: c._id })), { timeoutMs: 20000 });
+      fullCountries.forEach((f, index) => { if (f) countryById[allCountries[index]._id] = f; });
       for (const id of companyIds) {
         const co = compById[id];
         const region = co ? regionsObj[co.region] : null;
@@ -475,9 +491,15 @@ const IrishTaxDevTool = (() => {
       // 4) Actual wages paid (last 24h), per owner, bucketed by worker
       steps.setStep(4, 'active', { sub: 'Summing wages actually paid (24h)', count: `0/${owners.length}` });
       const workerWages = {};   // workerId -> wages paid in the window
+      const firstWagePages = await trpcManyValues('transaction.getPaginatedTransactions',
+        owners.map(ownerId => wagePageInput(ownerId)),
+        { timeoutMs: 30_000, onProgress: (done, total) => {
+          steps.setStep(4, 'active', { count: `${done}/${total}` });
+        } });
       let d4 = 0;
-      await mapConcurrent(owners, async (ownerId) => {
-        const byWorker = await paidWagesByWorker(ownerId, ownerWorkerCompany[ownerId]);
+      await mapConcurrent(owners, async (ownerId, index) => {
+        const byWorker = await paidWagesByWorker(
+          ownerId, ownerWorkerCompany[ownerId], firstWagePages[index]);
         for (const wid in byWorker) workerWages[wid] = (workerWages[wid] || 0) + byWorker[wid];
         d4++; steps.setStep(4, 'active', { count: `${d4}/${owners.length}` });
       }, 8);
@@ -487,14 +509,17 @@ const IrishTaxDevTool = (() => {
       for (const id of companyIds) for (const w of factories[id].workers) workerIds.add(w);
       const unknown = [...workerIds].filter(id => !nameById[id]);
       steps.setStep(4, 'active', { sub: 'Resolving worker usernames', count: `0/${unknown.length}` });
-      let dn = 0;
-      await mapConcurrent(unknown, async (id) => {
-        const u = await it_trpc('user.getUserLite', { userId: id }).catch(() => null);
+      const lites = await trpcManyValues('user.getUserLite',
+        unknown.map(userId => ({ userId })),
+        { timeoutMs: 20000, onProgress: (done, total) => {
+          steps.setStep(4, 'active', { count: `${done}/${total}` });
+        } });
+      lites.forEach((u, index) => {
+        const id = unknown[index];
         if (u?.username) nameById[id] = u.username;
         const hc = u?.country ?? u?.countryId ?? null;
         if (hc) homeCountryById[id] = hc;
-        if (++dn % 20 === 0) steps.setStep(4, 'active', { count: `${dn}/${unknown.length}` });
-      }, 20);
+      });
       steps.setStep(4, 'done', { count: `${owners.length} owners · ${workerIds.size} workers` });
       steps.fadeOut(400);
 

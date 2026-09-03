@@ -160,14 +160,6 @@ const DashboardTool = (() => {
     return `${Math.floor(ms / 86_400_000)}d ago`;
   };
 
-  async function mapConcurrent(items, worker, concurrency = 12) {
-    const out = new Array(items.length); let i = 0;
-    async function pump() {
-      while (i < items.length) { const idx = i++; try { out[idx] = await worker(items[idx]); } catch { out[idx] = null; } }
-    }
-    await Promise.all(Array(Math.min(concurrency, items.length || 1)).fill(0).map(pump));
-    return out;
-  }
   async function fetchJsonUrl(url) {
     const res = await fetch(url, { cache: 'no-cache' });
     if (!res.ok) { if (res.status === 404) return null; throw new Error(`HTTP ${res.status}`); }
@@ -203,7 +195,7 @@ const DashboardTool = (() => {
     const res = await db_trpc('search.searchAnything', { searchText: username });
     const ids = (res?.userIds || []).slice(0, 10);
     if (!ids.length) return null;
-    const profiles = await mapConcurrent(ids, (id) => db_trpc('user.getUserLite', { userId: id }).catch(() => null), 10);
+    const profiles = await trpcManyValues('user.getUserLite', ids.map(userId => ({ userId })));
     return profiles.find(u => u && typeof u.username === 'string' && u.username.toLowerCase() === needle) || null;
   }
 
@@ -535,11 +527,18 @@ const DashboardTool = (() => {
 
       // Profiles (name + skills) and latest clock-in / 24h pay, per worker.
       const now = Date.now(), cutoff = now - ACTIVE_MS;
-      await mapConcurrent(workers, async (w) => {
-        const [lite, page] = await Promise.all([
-          db_trpc('user.getUserLite', { userId: w.id }).catch(() => null),
-          db_trpc('transaction.getPaginatedTransactions', { userId: w.id, transactionType: 'wage', limit: 100 }).catch(() => null),
-        ]);
+      // Two procedures over the same worker list, so each becomes one set of
+      // tRPC batches rather than two requests per worker. The pair still runs
+      // concurrently, so this costs no extra wall-clock time.
+      const [lites, pages] = await Promise.all([
+        trpcManyValues('user.getUserLite',
+          workers.map(w => ({ userId: w.id }))),
+        trpcManyValues('transaction.getPaginatedTransactions',
+          workers.map(w => ({ userId: w.id, transactionType: 'wage', limit: 100 }))),
+      ]);
+      workers.forEach((w, index) => {
+        const lite = lites[index];
+        const page = pages[index];
         w.name = lite?.username || null;
         w.production = skill(lite, 'production');
         w.energy = skill(lite, 'energy');
@@ -554,7 +553,7 @@ const DashboardTool = (() => {
         }
         w.lastMs = last == null ? null : now - last;
         w.paid24 = paid;
-      }, 6);
+      });
 
       const active = workers.filter(w => w.lastMs != null && w.lastMs < ACTIVE_MS).length;
       const idle   = workers.length - active;
@@ -608,7 +607,7 @@ const DashboardTool = (() => {
 
       const workersData = await workersP;
       const [allCompaniesRaw, itemsArr, gameConfig, regionsObj, allCountriesRaw, wsCountries, salaryInfo] = await Promise.all([
-        mapConcurrent(companyIds, (id) => db_trpc('company.getById', { companyId: id }).catch(() => null)),
+        trpcManyValues('company.getById', companyIds.map(companyId => ({ companyId }))),
         fetchJsonUrl(ITEMS_URL).catch(() => []),
         db_trpc('gameConfig.getGameConfig', {}).catch(() => null),
         db_trpc('region.getRegionsObject', {}),
@@ -635,18 +634,22 @@ const DashboardTool = (() => {
       const avgPrices = {};
       (Array.isArray(itemsArr) ? itemsArr : []).forEach(it => { if (it?.itemCode != null && typeof it.avg === 'number') avgPrices[it.itemCode] = it.avg; });
       const prices = {};
-      await mapConcurrent([...needed], async (code) => {
-        const ob = await db_trpc('tradingOrder.getTopOrders', { itemCode: code }).catch(() => null);
+      const priceCodes = [...needed];
+      const books = await trpcManyValues('tradingOrder.getTopOrders',
+        priceCodes.map(itemCode => ({ itemCode })));
+      books.forEach((ob, index) => {
+        const code = priceCodes[index];
         const p = orderLowestOffer(ob) ?? orderMid(ob) ?? avgPrices[code];
         if (p != null) prices[code] = p;
       });
 
       const allCountries = Array.isArray(allCountriesRaw) ? allCountriesRaw : (allCountriesRaw?.items || []);
       const countryById = {};
-      await mapConcurrent(allCountries, async (c) => {
-        const fc = await db_trpc('country.getCountryById', { countryId: c._id }).catch(() => null);
-        if (fc) countryById[c._id] = fc;
-      }, 25);
+      const fullCountries = await trpcManyValues('country.getCountryById',
+        allCountries.map(c => ({ countryId: c._id })));
+      fullCountries.forEach((fc, index) => {
+        if (fc) countryById[allCountries[index]._id] = fc;
+      });
       (Array.isArray(wsCountries) ? wsCountries : []).forEach(c => {
         if (c && c.countryId != null && c.industrialism != null && countryById[c.countryId]) countryById[c.countryId].industrialism = c.industrialism;
       });
@@ -667,9 +670,10 @@ const DashboardTool = (() => {
         (workers || []).forEach(w => { if (w && w.user) workerEntries.push({ companyId: company?._id, userId: w.user, wage: w.wage, fidelity: w.fidelity }); }));
       const uniqueWorkerIds = [...new Set(workerEntries.map(w => w.userId).filter(id => id !== full._id))];
       const workerProfiles = { [full._id]: full };
-      await mapConcurrent(uniqueWorkerIds, async (id) => {
-        const lite = await db_trpc('user.getUserLite', { userId: id }).catch(() => null);
-        if (lite) workerProfiles[id] = lite;
+      const workerLites = await trpcManyValues('user.getUserLite',
+        uniqueWorkerIds.map(userId => ({ userId })));
+      workerLites.forEach((lite, index) => {
+        if (lite) workerProfiles[uniqueWorkerIds[index]] = lite;
       });
 
       const companyById = {};
@@ -801,6 +805,15 @@ const DashboardTool = (() => {
   }
 
   /* ── Orchestration ───────────────────────────────────────────────── */
+  /*
+   *  No step panel here, so rate-limit waits surface on the status line
+   *  instead. Without this the tool sits silent for as long as the API's
+   *  window has left to run, which reads as a hang rather than a wait.
+   */
+  function reportRateLimit(waitMs, itemCount) {
+    setStatus(`Rate limited by the game API — retrying ${itemCount} request${itemCount === 1 ? '' : 's'} in ${Math.ceil(waitMs / 1000)}s…`);
+  }
+
   async function run() {
     if (running) return;
     const raw = $username.value.trim();
@@ -809,6 +822,7 @@ const DashboardTool = (() => {
     running = true;
     $load.disabled = true;
     setStatus('');
+    setRateLimitHandler(reportRateLimit);
     setTrpcCache(true);   // dedupe the country/profile fetches shared across cards
     $grid.innerHTML = `<div class="dash-loading"><span class="dash-spinner"></span> Looking up “${escapeHtml(raw)}”…</div>`;
 
@@ -841,6 +855,8 @@ const DashboardTool = (() => {
     } finally {
       running = false;
       $load.disabled = false;
+      // Only release it if it's still ours, matching makeSteps.
+      if (getRateLimitHandler() === reportRateLimit) setRateLimitHandler(null);
     }
   }
 

@@ -76,19 +76,6 @@ const WealthMonitorTool = (() => {
     return res.json();
   }
 
-  async function mapConcurrent(items, worker, concurrency = 10) {
-    const results = new Array(items.length);
-    let i = 0;
-    async function pump() {
-      while (i < items.length) {
-        const idx = i++;
-        try { results[idx] = await worker(items[idx]); } catch { results[idx] = null; }
-      }
-    }
-    await Promise.all(Array(Math.min(concurrency, items.length)).fill(0).map(pump));
-    return results;
-  }
-
   // Same anti-fuzzy resolution as the other tools: search, then verify an
   // exact username match. Never fall back to the top hit.
   async function resolveUsername(username) {
@@ -97,9 +84,8 @@ const WealthMonitorTool = (() => {
     const searchRes = await wm_trpc('search.searchAnything', { searchText: username });
     const ids = (searchRes?.userIds || []).slice(0, 10);
     if (!ids.length) return null;
-    const profiles = await mapConcurrent(ids, async (id) => {
-      try { return await wm_trpc('user.getUserLite', { userId: id }); } catch { return null; }
-    });
+    const profiles = await trpcManyValues('user.getUserLite',
+      ids.map(userId => ({ userId })));
     return profiles.find(u =>
       u && typeof u.username === 'string' && u.username.toLowerCase() === needle
     ) || null;

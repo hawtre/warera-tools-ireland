@@ -82,26 +82,6 @@ const BuddyFinderTool = (() => {
     Math.round(getProduction(u) * getEnergy(u) * ACTIONS_PER_ENERGY);
   const getCountry = u => u?.country ?? u?.countryId ?? null;
 
-  /* ── Concurrency helper ─────────────────────────────────── */
-  async function mapConcurrent(items, worker, concurrency = 20, onProgress) {
-    const total = items.length;
-    let done = 0;
-    const results = new Array(total);
-    let i = 0;
-    async function pump() {
-      while (i < total) {
-        const idx = i++;
-        try { results[idx] = await worker(items[idx]); }
-        catch (e) { results[idx] = { error: e }; }
-        done++;
-        onProgress?.(done, total);
-      }
-    }
-    const pumps = Array(Math.min(concurrency, total)).fill(0).map(pump);
-    await Promise.all(pumps);
-    return results;
-  }
-
   /* ── Username resolution ────────────────────────────────── */
   // Same exact-match pattern as advisor/clockin: search returns fuzzy
   // matches, we verify by exact username (case-insensitive) against
@@ -114,10 +94,8 @@ const BuddyFinderTool = (() => {
     const candidateIds = (searchRes?.userIds || []).slice(0, 10);
     if (candidateIds.length === 0) return null;
 
-    const candidates = await mapConcurrent(candidateIds, async (id) => {
-      try { return await bf_trpc('user.getUserLite', { userId: id }); }
-      catch { return null; }
-    }, 10);
+    const candidates = await trpcManyValues('user.getUserLite',
+      candidateIds.map(userId => ({ userId })));
 
     return candidates.find(u =>
       u && typeof u.username === 'string' && u.username.toLowerCase() === needle
@@ -143,8 +121,14 @@ const BuddyFinderTool = (() => {
     }
     return items;
   }
-  const fetchUserLite = (userId) => bf_trpc('user.getUserLite', { userId });
-  const fetchWorkers  = (userId) => bf_trpc('worker.getWorkers', { userId });
+  // Bulk fetchers. Both endpoints are one procedure over a list of user IDs,
+  // so they go out as tRPC batches: a 600-citizen sweep costs ~30 requests
+  // instead of 600. onProgress still ticks per batch, so the step counter
+  // moves in chunks rather than one at a time.
+  const fetchUserLites = (userIds, onProgress) =>
+    trpcManyValues('user.getUserLite', userIds.map(userId => ({ userId })), { onProgress });
+  const fetchWorkersMany = (userIds, onProgress) =>
+    trpcManyValues('worker.getWorkers', userIds.map(userId => ({ userId })), { onProgress });
 
   /* ── Pair imbalance detection ───────────────────────────── */
   // Mirrors the umbrella Buddy System Monitor's thresholds so the
@@ -429,13 +413,13 @@ const BuddyFinderTool = (() => {
 
       // Step 3: lite profiles for skills
       steps.setStep(3, 'active', { sub: 'Loading skills', count: `0/${citizens.length}` });
-      await mapConcurrent(citizens, async (c) => {
-        try {
-          const lite = await fetchUserLite(c._id);
-          if (lite) users.set(c._id, { ...users.get(c._id), ...lite });
-        } catch {}
-      }, 20, (done, total) => {
+      const lites = await fetchUserLites(citizens.map(c => c._id), (done, total) => {
         steps.setStep(3, 'active', { count: `${done}/${total}` });
+      });
+      lites.forEach((lite, index) => {
+        if (!lite) return;
+        const id = citizens[index]._id;
+        users.set(id, { ...users.get(id), ...lite });
       });
       steps.setStep(3, 'done', { count: `${citizens.length} loaded` });
 
@@ -443,22 +427,20 @@ const BuddyFinderTool = (() => {
       steps.setStep(4, 'active', { sub: 'Checking who is already paired', count: `0/${citizens.length}` });
       const ownerCompanies = new Map();
       const worksAt = new Map();
-      await mapConcurrent(citizens, async (c) => {
-        try {
-          const res = await fetchWorkers(c._id);
-          const wpc = res?.workersPerCompany || [];
-          if (wpc.length > 0) {
-            ownerCompanies.set(c._id, wpc);
-            for (const { workers } of wpc) {
-              for (const w of (workers || [])) {
-                if (!worksAt.has(w.user)) worksAt.set(w.user, new Map());
-                worksAt.get(w.user).set(c._id, { wage: w.wage });
-              }
-            }
-          }
-        } catch {}
-      }, 20, (done, total) => {
+      const rosters = await fetchWorkersMany(citizens.map(c => c._id), (done, total) => {
         steps.setStep(4, 'active', { count: `${done}/${total}` });
+      });
+      rosters.forEach((res, index) => {
+        const wpc = res?.workersPerCompany || [];
+        if (!wpc.length) return;
+        const ownerId = citizens[index]._id;
+        ownerCompanies.set(ownerId, wpc);
+        for (const { workers } of wpc) {
+          for (const w of (workers || [])) {
+            if (!worksAt.has(w.user)) worksAt.set(w.user, new Map());
+            worksAt.get(w.user).set(ownerId, { wage: w.wage });
+          }
+        }
       });
 
       // Compute mutual pairs
@@ -702,13 +684,8 @@ const BuddyFinderTool = (() => {
     // Try to surface paired matches among waitlist members. If fewer
     // than two entries, skip the lite-profile fetch entirely.
     if (n >= 2) {
-      const profiles = await mapConcurrent(wl.entries, async (entry) => {
-        try {
-          const u = await fetchUserLite(entry.userId);
-          if (!u) return null;
-          return { user: u, daily: getMaxDailyOutput(u) };
-        } catch { return null; }
-      }, 10);
+      const users = await fetchUserLites(wl.entries.map(entry => entry.userId));
+      const profiles = users.map(u => u ? { user: u, daily: getMaxDailyOutput(u) } : null);
       const pairs = pairWaitlistMembers(profiles);
       renderWaitlistPairs(pairs);
     } else {

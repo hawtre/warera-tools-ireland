@@ -131,8 +131,13 @@ function corsHeaders(origin) {
   }
   h.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   h.set('Access-Control-Allow-Headers', 'Content-Type');
-  // Retry-After is not CORS-safelisted; without this the tools can't read it.
-  h.set('Access-Control-Expose-Headers', 'Retry-After');
+  // The upstream rate-limit headers pass through untouched, but a browser
+  // hides response headers from fetch() unless they're listed here. shared.js
+  // reads Retry-After to decide how long to wait after a 429 (the game API
+  // allows 500 requests per minute per token), so without this the tools can
+  // see the 429 but not how long the window has left, and back off blind.
+  h.set('Access-Control-Expose-Headers',
+    'retry-after, ratelimit-limit, ratelimit-remaining, ratelimit-reset, ratelimit-policy');
   h.set('Access-Control-Max-Age', '86400');
   return h;
 }

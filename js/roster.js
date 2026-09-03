@@ -651,20 +651,8 @@ const RosterTool = (() => {
   }
 
   /* ═══════════════════════════════════════════════════════════════════
-   *  CONCURRENCY + DATA FETCHERS
+   *  DATA FETCHERS
    * ═══════════════════════════════════════════════════════════════════ */
-  async function mapConcurrent(items, worker, concurrency = 20) {
-    const out = new Array(items.length); let i = 0;
-    async function pump() {
-      while (i < items.length) {
-        const idx = i++;
-        try { out[idx] = await worker(items[idx]); }
-        catch { out[idx] = null; }
-      }
-    }
-    await Promise.all(Array(Math.min(concurrency, items.length || 1)).fill(0).map(pump));
-    return out;
-  }
 
   async function fetchAllCitizens(countryId) {
     const items = [];
@@ -682,30 +670,27 @@ const RosterTool = (() => {
     return items;
   }
 
-  // Hydrate each citizen with the FULL profile (getUserById). The gateway
-  // batches these (400ms window) and caches them (~5 min), so repeated
-  // loads in a short window mostly don't hit the game API at all.
+  // Hydrate each citizen with the FULL profile (getUserById), sent as tRPC
+  // batches so a few hundred citizens cost a handful of requests instead of
+  // one each. The gateway also caches these (~5 min), so repeated loads in a
+  // short window mostly don't hit the game API at all. A citizen whose full
+  // profile fails keeps the listing row we already have.
   async function fetchFullProfiles(citizens) {
-    return mapConcurrent(citizens, async (c) => {
-      try {
-        const full = await rs_trpc('user.getUserById', { userId: c._id });
-        return full ? { ...c, ...full } : c;
-      } catch { return c; }
-    });
+    const fulls = await trpcManyValues('user.getUserById',
+      citizens.map(c => ({ userId: c._id })));
+    return citizens.map((c, index) => fulls[index] ? { ...c, ...fulls[index] } : c);
   }
 
   async function fetchMuNames(citizens) {
     const muIds = [...new Set(citizens.map(c => c.mu).filter(Boolean))];
     const info = {};
-    await mapConcurrent(muIds, async (id) => {
-      try {
-        const mu = await rs_trpc('mu.getById', { muId: id });
-        // avatarUrl confirmed: same field name as users, also present on
-        // mu.getById per the MU tool's avatarOf(). Same call as before —
-        // we were already fetching this object just to read .name.
-        if (mu?.name) info[id] = { name: mu.name, avatarUrl: mu.avatarUrl || null };
-      } catch {}
-    }, 10);
+    const mus = await trpcManyValues('mu.getById', muIds.map(muId => ({ muId })));
+    // avatarUrl confirmed: same field name as users, also present on
+    // mu.getById per the MU tool's avatarOf(). Same call as before —
+    // we were already fetching this object just to read .name.
+    mus.forEach((mu, index) => {
+      if (mu?.name) info[muIds[index]] = { name: mu.name, avatarUrl: mu.avatarUrl || null };
+    });
     return info;
   }
 
@@ -1035,6 +1020,15 @@ const RosterTool = (() => {
   /* ═══════════════════════════════════════════════════════════════════
    *  ORCHESTRATION
    * ═══════════════════════════════════════════════════════════════════ */
+  /*
+   *  No step panel here, so rate-limit waits surface on the status line
+   *  instead. Without this the tool sits silent for as long as the API's
+   *  window has left to run, which reads as a hang rather than a wait.
+   */
+  function reportRateLimit(waitMs, itemCount) {
+    setStatus(`Rate limited by the game API — retrying ${itemCount} request${itemCount === 1 ? '' : 's'} in ${Math.ceil(waitMs / 1000)}s…`);
+  }
+
   async function run() {
     if (running) return;
     const country = COUNTRIES[countryKey] || COUNTRIES[DEFAULT_COUNTRY];
@@ -1042,6 +1036,7 @@ const RosterTool = (() => {
 
     running = true;
     setStatus('');
+    setRateLimitHandler(reportRateLimit);
     $content.innerHTML = `<div class="rs-loading"><span class="rs-spinner"></span>Loading ${escapeHtml(country.label)} citizens…</div>`;
 
     try {
@@ -1072,6 +1067,8 @@ const RosterTool = (() => {
       setStatus(friendly, true);
     } finally {
       running = false;
+      // Only release it if it's still ours, matching makeSteps.
+      if (getRateLimitHandler() === reportRateLimit) setRateLimitHandler(null);
     }
   }
 

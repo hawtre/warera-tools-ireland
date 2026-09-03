@@ -188,19 +188,19 @@ const MUTool = (() => {
 
   async function resolveUserNames(idArr) {
     const unknown = [...new Set(idArr)].filter(id => id && !userNames[id]);
-    const concurrency = 20;
-    for (let i = 0; i < unknown.length; i += concurrency) {
-      const batch = unknown.slice(i, i + concurrency);
-      await Promise.all(batch.map(async id => {
-        try {
-          const u = await trpc('user.getUserLite', { userId: id }, { timeoutMs: 20000 });
-          if (u?.username) userNames[id] = u.username;
-          recordSkills(id, u);
-        } catch {}
-      }));
-      const done = Math.min(i + concurrency, unknown.length);
-      steps.setStep(3, 'active', { sub: `${done} of ${unknown.length} resolved…` });
-    }
+    // One procedure over a list of IDs, so these go out as tRPC batches:
+    // a full MU roster sweep is a few requests rather than one per member.
+    const users = await trpcManyValues('user.getUserLite',
+      unknown.map(userId => ({ userId })),
+      { timeoutMs: 20000, onProgress: (done, total) => {
+        steps.setStep(3, 'active', { sub: `${done} of ${total} resolved…` });
+      } });
+    users.forEach((u, index) => {
+      if (!u) return;
+      const id = unknown[index];
+      if (u.username) userNames[id] = u.username;
+      recordSkills(id, u);
+    });
   }
 
   function avatarEl(mu) {

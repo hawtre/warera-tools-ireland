@@ -287,6 +287,19 @@ footer a:hover { color: var(--text); }
   border-width: 0 2px 2px 0;
   transform: rotate(45deg) translate(0, -1px);
 }
+/* Rate-limited: the tool is deliberately waiting out the API's window, so it
+   reads as paused-but-fine rather than failed. Injected by makeSteps, not
+   present in any tool's markup. */
+.step[data-state="waiting"] .step-icon {
+  border: 1.5px solid var(--warn);
+  background: transparent;
+  animation: step-pulse 1.4s ease-in-out infinite;
+}
+.step[data-state="waiting"] .step-title { color: var(--text); }
+.step[data-state="waiting"] .step-sub:not(:empty) { display: block; }
+.step[data-state="waiting"] .step-count { color: var(--warn); }
+@keyframes step-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
 .step[data-state="error"]   .step-icon { background: var(--danger); }
 .step[data-state="error"]   .step-icon::before,
 .step[data-state="error"]   .step-icon::after {

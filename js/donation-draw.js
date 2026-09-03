@@ -11,7 +11,6 @@ const IrelandDonationDrawTool = (() => {
   const MAX_LOOKBACK_MS = 31 * DAY_MS;
   const DEFAULT_LOOKBACK_MS = 7 * DAY_MS;
   const PROFILE_STALE_MS = 60_000;
-  const PROFILE_BATCH_SIZE = 20;
   const PAGE_LIMIT = 100;
   const MAX_PAGES = 500;
   const CACHE_KEY = 'ireland-donation-draw:transactions:v1';
@@ -382,27 +381,14 @@ const IrelandDonationDrawTool = (() => {
 
   async function fetchLiteProfiles(donorList) {
     const profiles = new Map();
-    const chunks = [];
-    for (let start = 0; start < donorList.length; start += PROFILE_BATCH_SIZE) {
-      chunks.push(donorList.slice(start, start + PROFILE_BATCH_SIZE));
-    }
-    const results = await Promise.all(chunks.map(async batch => {
-      let settled;
-      try {
-        settled = await trpc('user.getUserLite',
-          batch.map(donor => ({ userId: donor.id })),
-          { batch: true, retry: true, timeoutMs: 30_000, fresh: true });
-      } catch {
-        settled = batch.map(() => ({ status: 'rejected' }));
-      }
-      return { batch, settled };
-    }));
-    for (const { batch, settled } of results) {
-      settled.forEach((result, index) => {
-        const profile = result.status === 'fulfilled' ? result.value : null;
-        if (profile?._id === batch[index].id) profiles.set(batch[index].id, profile);
-      });
-    }
+    const fetched = await trpcManyValues('user.getUserLite',
+      donorList.map(donor => ({ userId: donor.id })),
+      { fresh: true });
+    // Only keep a profile that came back for the donor we asked about — the
+    // draw is money changing hands, so a mismatched row is worse than a gap.
+    fetched.forEach((profile, index) => {
+      if (profile?._id === donorList[index].id) profiles.set(donorList[index].id, profile);
+    });
     return profiles;
   }
 

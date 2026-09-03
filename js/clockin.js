@@ -150,19 +150,11 @@ const ClockInTool = (() => {
     });
 
     const top = candidateIds.slice(0, 10);
-    let checked = 0;
-    const profiles = await Promise.all(top.map(async id => {
-      try {
-        const u = await ci_trpc('user.getUserLite', { userId: id });
-        checked++;
-        steps.setStep(1, 'active', { count: `${checked}/${top.length}` });
-        return u;
-      } catch {
-        checked++;
-        steps.setStep(1, 'active', { count: `${checked}/${top.length}` });
-        return null;
-      }
-    }));
+    const profiles = await trpcManyValues('user.getUserLite',
+      top.map(userId => ({ userId })),
+      { timeoutMs: 20000, onProgress: (done, total) => {
+        steps.setStep(1, 'active', { count: `${done}/${total}` });
+      } });
     const known = profiles.filter(Boolean);
     const normalise = s => (s || '').toLowerCase().trim();
     const target = normalise(username);
@@ -187,28 +179,43 @@ const ClockInTool = (() => {
   }
 
   /* ── Wage transaction loader ────────────────────────────── */
-  async function loadWagesForWorker(workerId, employerId) {
+  /** @returns {Object} The tRPC input for a worker's first page of wages. */
+  function wagePageInput(workerId) {
+    return { userId: workerId, transactionType: 'wage', limit: TX_PAGE_LIMIT };
+  }
+
+  /*
+   *  Pagination is per worker and cursor-driven, so it can't be batched
+   *  wholesale — but the FIRST page can, and within the 24h window most
+   *  workers never need a second one. The caller fetches page one for every
+   *  worker in a few tRPC batches and passes it in as `firstPage`; only the
+   *  rare worker with more history than one page fits falls back to
+   *  sequential requests from page two on.
+   */
+  async function loadWagesForWorker(workerId, employerId, firstPage = null) {
     const cutoff = Date.now() - WINDOW_MS;
     const punches = [];
     let cursor = null;
     let pages = 0;
     let seenOlder = false;
     let filteredOut = 0;
+    let pending = firstPage;
 
     while (pages < MAX_TX_PAGES && !seenOlder) {
-      const input = {
-        userId: workerId,
-        transactionType: 'wage',
-        limit: TX_PAGE_LIMIT,
-      };
+      const input = wagePageInput(workerId);
       if (cursor) input.cursor = cursor;
 
       let page;
-      try {
-        page = await ci_trpc('transaction.getPaginatedTransactions', input);
-      } catch (e) {
-        console.warn(`[clockin] worker ${workerId} page ${pages} failed:`, e.message);
-        break;
+      if (pending) {
+        page = pending;
+        pending = null;
+      } else {
+        try {
+          page = await ci_trpc('transaction.getPaginatedTransactions', input);
+        } catch (e) {
+          console.warn(`[clockin] worker ${workerId} page ${pages} failed:`, e.message);
+          break;
+        }
       }
       pages++;
 
@@ -324,42 +331,46 @@ const ClockInTool = (() => {
     // Step 3: resolve worker usernames + capture stats for projection
     const workerIds = [...workerMap.keys()];
     steps.setStep(3, 'active', { sub: 'Resolving worker profiles', count: `0/${workerIds.length}` });
-    const concurrency = 10;
-    let done = 0;
-    for (let i = 0; i < workerIds.length; i += concurrency) {
-      const batch = workerIds.slice(i, i + concurrency);
-      await Promise.all(batch.map(async uid => {
-        try {
-          const u = await ci_trpc('user.getUserLite', { userId: uid });
-          const w = workerMap.get(uid);
-          if (u?.username) w.name = u.username;
-          // Stats needed for payroll projection + the on-card skill
-          // chips. All live under skills.{stat}.value:
-          //   energy.value     → max energy (used for full-bar action count)
-          //   production.value → PP generated per work action
-          //   strength.value   → optional, shown if present
-          //   damage.value     → optional, shown if present
-          if (u?.skills) {
-            w.energyMax  = u.skills.energy?.value     ?? null;
-            w.production = u.skills.production?.value ?? null;
-            w.strength   = u.skills.strength?.value   ?? null;
-            w.damage     = u.skills.damage?.value     ?? null;
-          }
-        } catch { /* skip — projection will mark this worker as unknown */ }
-        done++;
-        steps.setStep(3, 'active', { count: `${done}/${workerIds.length}` });
-      }));
-    }
+    const profiles = await trpcManyValues('user.getUserLite',
+      workerIds.map(userId => ({ userId })),
+      { timeoutMs: 20000, onProgress: (done, total) => {
+        steps.setStep(3, 'active', { count: `${done}/${total}` });
+      } });
+    profiles.forEach((u, index) => {
+      // A failed profile is skipped — the projection marks that worker unknown.
+      if (!u) return;
+      const w = workerMap.get(workerIds[index]);
+      if (u.username) w.name = u.username;
+      // Stats needed for payroll projection + the on-card skill
+      // chips. All live under skills.{stat}.value:
+      //   energy.value     → max energy (used for full-bar action count)
+      //   production.value → PP generated per work action
+      //   strength.value   → optional, shown if present
+      //   damage.value     → optional, shown if present
+      if (u.skills) {
+        w.energyMax  = u.skills.energy?.value     ?? null;
+        w.production = u.skills.production?.value ?? null;
+        w.strength   = u.skills.strength?.value   ?? null;
+        w.damage     = u.skills.damage?.value     ?? null;
+      }
+    });
     steps.setStep(3, 'done', { count: `${workerIds.length} resolved` });
 
     // Step 4: pull wage transactions
     steps.setStep(4, 'active', { sub: 'Pulling wage transactions', count: `0/${workerIds.length}` });
+    const firstPages = await trpcManyValues('transaction.getPaginatedTransactions',
+      workerIds.map(uid => wagePageInput(uid)),
+      { timeoutMs: 30_000, onProgress: (done, total) => {
+        steps.setStep(4, 'active', { sub: 'Pulling wage transactions', count: `${done}/${total}` });
+      } });
+
     let txDone = 0;
     const txConcurrency = 5;
     for (let i = 0; i < workerIds.length; i += txConcurrency) {
-      const batch = workerIds.slice(i, i + txConcurrency);
-      await Promise.all(batch.map(async uid => {
-        workerMap.get(uid).punches = await loadWagesForWorker(uid, resolved.userId);
+      const slice = workerIds.slice(i, i + txConcurrency);
+      await Promise.all(slice.map(async (uid, offset) => {
+        workerMap.get(uid).punches =
+          await loadWagesForWorker(uid, resolved.userId, firstPages[i + offset]);
         txDone++;
         steps.setStep(4, 'active', { count: `${txDone}/${workerIds.length}` });
       }));

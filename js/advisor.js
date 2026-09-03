@@ -130,6 +130,36 @@ const AdvisorTool = (() => {
   }
 
   /**
+   * Fetch several users at once.
+   *
+   * Which user procedure this build exposes isn't known up front, so the
+   * first IDs are probed one at a time through fetchUser until one of them
+   * pins USER_ENDPOINT down. Everything after that goes out as a single
+   * tRPC batch instead of one request per candidate.
+   *
+   * @param {string[]} userIds User IDs to fetch.
+   * @param {function(number, number):void} [onProgress] Called with (done, total).
+   * @returns {Promise<Array<Object|null>>} Profiles in input order; null where unavailable.
+   */
+  async function fetchUsers(userIds, onProgress) {
+    const total = userIds.length;
+    const results = new Array(total).fill(null);
+    let probed = 0;
+    while (probed < total && !USER_ENDPOINT) {
+      results[probed] = await fetchUser(userIds[probed]);
+      probed++;
+      onProgress?.(probed, total);
+    }
+    if (probed >= total) return results;
+
+    const rest = await trpcManyValues(USER_ENDPOINT,
+      userIds.slice(probed).map(userId => ({ userId })),
+      { onProgress: (done) => onProgress?.(probed + done, total) });
+    rest.forEach((u, index) => { results[probed + index] = u; });
+    return results;
+  }
+
+  /**
    * Resolve a username to the correct user ID.
    *
    * search.searchAnything is fuzzy/relevance-ranked across all entities,
@@ -153,13 +183,9 @@ const AdvisorTool = (() => {
     });
 
     const top = candidateIds.slice(0, 10);
-    let checked = 0;
-    const profiles = await Promise.all(top.map(async id => {
-      const u = await fetchUser(id);
-      checked++;
-      steps.setStep(1, 'active', { count: `${checked}/${top.length}` });
-      return u;
-    }));
+    const profiles = await fetchUsers(top, (done, total) => {
+      steps.setStep(1, 'active', { count: `${done}/${total}` });
+    });
 
     const known = profiles.filter(Boolean);
     const normalise = s => (s || '').toLowerCase().trim();
@@ -241,20 +267,16 @@ const AdvisorTool = (() => {
 
   async function loadCountriesParallel(countries) {
     const byId = {};
-    const total = countries.length;
-    const chunk = 25;
-    let done = 0;
-    for (let i = 0; i < total; i += chunk) {
-      const slice = countries.slice(i, i + chunk);
-      await Promise.all(slice.map(async c => {
-        try {
-          const country = await adv_trpc('country.getCountryById', { countryId: c._id });
-          if (country) byId[c._id] = country;
-        } catch (e) { /* skip individual failures */ }
-        done++;
-      }));
-      steps.setStep(3, 'active', { count: `${done}/${total}` });
-    }
+    const loaded = await trpcManyValues('country.getCountryById',
+      countries.map(c => ({ countryId: c._id })),
+      { onProgress: (done, total) => {
+        steps.setStep(3, 'active', { count: `${done}/${total}` });
+      } });
+    // Individual failures are skipped: a country that won't load simply has
+    // no bonus data, which the placement scoring already tolerates.
+    loaded.forEach((country, index) => {
+      if (country) byId[countries[index]._id] = country;
+    });
     return byId;
   }
 
@@ -290,13 +312,17 @@ const AdvisorTool = (() => {
       sub: `Loading ${companyIds.length} company details`,
       count: `0/${companyIds.length}`
     });
-    let loaded = 0;
-    const companies = await Promise.all(companyIds.map(async id => {
-      const c = await adv_trpc('company.getById', { companyId: id });
-      loaded++;
-      steps.setStep(2, 'active', { count: `${loaded}/${companyIds.length}` });
-      return c;
-    }));
+    const settled = await trpcMany('company.getById',
+      companyIds.map(companyId => ({ companyId })),
+      { onProgress: (done, total) => {
+        steps.setStep(2, 'active', { count: `${done}/${total}` });
+      } });
+    // Your own companies are the whole analysis, so a failure here is fatal
+    // rather than a gap to skip over — surface it like the single-request
+    // version did.
+    const failed = settled.find(result => result.status === 'rejected');
+    if (failed) throw failed.reason;
+    const companies = settled.map(result => result.value);
     steps.setStep(2, 'done', { count: `${companies.filter(Boolean).length} loaded` });
 
     // Regions + country list + warerastats companion endpoint
