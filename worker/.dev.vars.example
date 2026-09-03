@@ -1,5 +1,7 @@
 # Copy to worker/.dev.vars for `wrangler dev`. Gitignored - never commit the real file.
-WARERA_API_KEY=""
+# One or more game API tokens, comma-separated. WARERA_API_KEY (singular)
+# is still honoured if WARERA_API_KEYS is unset.
+WARERA_API_KEYS=""
 GITHUB_DISPATCH_TOKEN=""
 DISCORD_WEBHOOK_URL=""
 ALLOWED_ORIGINS="http://localhost:8000,http://127.0.0.1:8000"

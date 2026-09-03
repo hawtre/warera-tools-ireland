@@ -14,7 +14,11 @@ GITHUB_REPO = "hawtre/warera-tools-ireland"
 
 # Secrets
 #
-#   wrangler secret put WARERA_API_KEY         # required: game API token
+#   wrangler secret put WARERA_API_KEYS        # required: game API token(s),
+#                                              #   comma-separated; requests are
+#                                              #   spread evenly across them.
+#                                              #   WARERA_API_KEY (singular) is
+#                                              #   still read as a fallback.
 #   wrangler secret put GITHUB_DISPATCH_TOKEN  # optional: fine-grained PAT,
 #                                              #   Contents:read + Actions:write
 #   wrangler secret put DISCORD_WEBHOOK_URL    # optional: Discord webhook

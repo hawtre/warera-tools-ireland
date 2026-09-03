@@ -327,7 +327,19 @@ async function _trpcExec(endpoint, inputOrInputs = {}, {
   try {
     const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
     if (!res.ok) {
-      const err = new Error(`${label} → HTTP ${res.status}`);
+      // A 429 here means every key in the proxy's pool is rate-limited, not
+      // just one - the proxy already retries a limited key on another. It is
+      // deliberately not treated as transient: the retry backoff below is
+      // ~400ms, far short of the limit window, so retrying would only add
+      // load. Say how long to wait instead and let the caller surface it.
+      let err;
+      if (res.status === 429) {
+        const secs = Number(res.headers.get('Retry-After'));
+        const wait = Number.isFinite(secs) && secs > 0 ? ` Try again in ~${secs}s.` : '';
+        err = new Error(`${label} → rate limited. All API keys are busy.${wait}`);
+      } else {
+        err = new Error(`${label} → HTTP ${res.status}`);
+      }
       err.status = res.status;
       throw err;
     }

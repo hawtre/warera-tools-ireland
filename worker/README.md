@@ -9,12 +9,12 @@ headers the upstream APIs don't send.
 
 | Path | Upstream | Token |
 |------|----------|-------|
-| `/trpc/*` | `https://api2.warera.io/trpc/*` | injects `x-api-key: $WARERA_API_KEY` |
+| `/trpc/*` | `https://api2.warera.io/trpc/*` | injects `x-api-key` from the key pool |
 | `/warerastats/*` | `https://api.warerastats.io/*` | none needed |
 | `/waitlist-update` | GitHub `repository_dispatch` → `waitlist-update` | `$GITHUB_DISPATCH_TOKEN` |
 | `/deal-config-submit` | GitHub `repository_dispatch` → `deal-config-submit` | `$GITHUB_DISPATCH_TOKEN` |
 | `/notify-discord` | `$DISCORD_WEBHOOK_URL` | webhook URL is the secret |
-| `/healthz` | - | reports whether the game token is configured |
+| `/healthz` | - | reports pool size and how many keys are cooling |
 
 `/trpc` and `/warerastats` are transparent proxies: method, path, query and body
 go upstream unchanged, and the upstream status and body come back unchanged.
@@ -24,6 +24,52 @@ logic off the HTTP status, so rewriting either would break it.
 The client's `Authorization`, `x-api-key` and `Cookie` headers are stripped
 before forwarding, so a caller can't smuggle their own credentials upstream
 through this proxy or override the injected token.
+
+## The API key pool
+
+`WARERA_API_KEYS` is a comma-separated list of game API tokens. The Worker
+picks one **uniformly at random per request**, rather than draining one key
+until it hits its limit and then moving on. Three reasons:
+
+- A Worker has no shared state across isolates and colos, so tracking "which
+  key is exhausted" would mean KV or a Durable Object on the hot path. Random
+  selection needs no state at all and distributes just as evenly.
+- Draining discovers the switchover by *failing* - the active key always sits
+  at the edge of its limit, so you learn it is spent by eating 429s. Spreading
+  evenly only touches a limit when total load exceeds total capacity.
+- Every key stays far from its ceiling, so a burst (a cron log run firing while
+  someone is on the dashboard) has the whole pool's headroom to absorb it,
+  instead of one key's remainder.
+
+When a request does come back `429`, the Worker parks that key for the duration
+of its `Retry-After` (default 60s, capped at 5 minutes) and retries **once** on
+a different key. A single limited key is therefore invisible to the client. The
+cooldown map lives in isolate memory, which is deliberate: it costs nothing,
+adds no latency, and each isolate relearns a bad key within a request or two.
+
+If the retry also 429s, every key in the pool is limited. The 429 passes
+through with a `Retry-After` giving the seconds until the first key frees up
+(`Access-Control-Expose-Headers` lets the browser read it), and `shared.js`
+turns that into `... → rate limited. All API keys are busy. Try again in ~45s.`,
+which the tools already surface via `steps.markActiveAsError()`.
+
+A pool-wide 429 is deliberately **not** retried client-side: `shared.js` backs
+off ~400ms, nowhere near a rate-limit window, so retrying would only add load to
+a pool that is already saturated. If you see this regularly, the pool is
+undersized - add keys.
+
+`GET /healthz` reports the pool state:
+
+```json
+{ "ok": true, "token": true, "keys": 3, "cooling": 0 }
+```
+
+`WARERA_API_KEY` (singular) is still read when `WARERA_API_KEYS` is unset, so an
+existing deployment keeps working until you set the new secret.
+
+The game API rate-limits **per key**, not per source IP, so pool size raises the
+effective ceiling roughly linearly - a single Worker calling with N keys gets N
+times the throughput.
 
 ## Which game endpoints actually need the token
 
@@ -43,7 +89,7 @@ cd worker
 pnpm install -g wrangler # or pnpx wrangler
 wrangler login
 
-wrangler secret put WARERA_API_KEY          # required
+wrangler secret put WARERA_API_KEYS         # required (comma-separated)
 wrangler secret put GITHUB_DISPATCH_TOKEN   # optional (waitlist + deal submit)
 wrangler secret put DISCORD_WEBHOOK_URL     # optional
 
@@ -73,7 +119,7 @@ log scripts (`wealth_log.py`, `bunker_log.py`, `tax_log.py`, `tax_engine.py`).
 ## Local development
 
 ```bash
-cp .dev.vars.example .dev.vars   # fill in WARERA_API_KEY
+cp .dev.vars.example .dev.vars   # fill in WARERA_API_KEYS
 wrangler dev                     # http://localhost:8787
 ```
 
