@@ -463,13 +463,17 @@ const ToolkitShell = (() => {
   const $brand = document.querySelector('.brand');
   if ($brand) $brand.addEventListener('click', () => resetHome());
 
+  // Identifies this view as the resolved cache's owner, so its teardown
+  // can't clear a cache another view has since claimed (see setTrpcCache).
+  const CACHE_OWNER = 'toolkit';
+
   // Leaving home: turn off the shared cache (clears it), hand the borrowed
   // views back, and reset so the next entry re-warms cleanly.
   window.addEventListener('hashchange', () => {
     const view = location.hash.replace(/^#/, '').split('?')[0] || 'home';
     if (view !== 'home' && state.mounted) {
       removeHashGuard();
-      setTrpcCache(false);
+      setTrpcCache(false, CACHE_OWNER);
       restoreAll();
       state.mounted = false;
       state.active = null;
@@ -485,7 +489,7 @@ const ToolkitShell = (() => {
     activate(params) {
       state.mounted = true;
       installHashGuard();
-      setTrpcCache(true);
+      setTrpcCache(true, CACHE_OWNER);
       prefetch();
       renderRecent();
       renderPreview();

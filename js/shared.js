@@ -248,6 +248,7 @@ const TRPC_VOLATILE = new Set([
   'worker.getWorkers',
 ]);
 let _trpcCacheOn = false;
+let _trpcCacheOwner = null;
 const _trpcInflight = new Map();
 const _trpcResolved = new Map();
 
@@ -336,13 +337,37 @@ function _cacheBatchItems(endpoint, inputs, settled) {
  * cancel requests that are already running. Volatile endpoints listed in
  * TRPC_VOLATILE are never resolved-cached, even while caching is enabled.
  *
+ * The cache is a single global owned by one view at a time, and every owner
+ * releases it on the way out. Pass an `owner` token so a release only lands
+ * if that view still holds it: several views tear down on the same
+ * hashchange as the next one mounts, and without this the correctness of the
+ * whole scheme rests on the order the listeners happen to be registered in,
+ * i.e. on script order in index.html. Reorder two <script> tags and the
+ * incoming view's freshly warmed cache gets wiped by the outgoing view's
+ * teardown, silently and with no error. An owner-less release is
+ * unconditional, preserving the original behaviour for any caller that
+ * doesn't care.
+ *
  * @param {boolean} on Whether resolved responses may be reused.
+ * @param {?string} [owner=null] Token identifying the view; required to make a release conditional.
  * @returns {void}
  */
-function setTrpcCache(on) {
-  _trpcCacheOn = !!on;
-  if (!on) _trpcResolved.clear();
+function setTrpcCache(on, owner = null) {
+  if (on) {
+    _trpcCacheOwner = owner;
+    _trpcCacheOn = true;
+    return;
+  }
+  // A release from a view that no longer holds the cache is stale - ignore it
+  // rather than clearing out whoever took over.
+  if (owner != null && _trpcCacheOwner !== owner) return;
+  _trpcCacheOwner = null;
+  _trpcCacheOn = false;
+  _trpcResolved.clear();
 }
+
+/** @returns {?string} The owner token currently holding the cache, if any. */
+function getTrpcCacheOwner() { return _trpcCacheOwner; }
 
 /** @returns {boolean} Whether this endpoint may use the resolved cache. */
 function _trpcResolvable(endpoint) {
@@ -499,10 +524,10 @@ async function _trpcExec(endpoint, inputOrInputs = {}, {
     const res = await fetch(url, ctrl ? { signal: ctrl.signal } : undefined);
     if (!res.ok) {
       // A 429 here means every key in the proxy's pool is rate-limited, not
-      // just one - the proxy already retries a limited key on another. It is
-      // deliberately not treated as transient: the retry backoff below is
-      // ~400ms, far short of the limit window, so retrying would only add
-      // load. Say how long to wait instead and let the caller surface it.
+      // just one - the proxy already retries a limited key on another. Name
+      // that plainly, and carry the seconds left in the window on the error
+      // so isTransientError()/_retryDelayMs() can wait out the window rather
+      // than burning attempts on the ~400ms backoff.
       let err;
       if (res.status === 429) {
         const secs = Number(res.headers.get('Retry-After'));

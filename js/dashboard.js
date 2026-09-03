@@ -111,6 +111,11 @@ const DashboardTool = (() => {
   let running = false;
   let mounted = false;
 
+  // Identifies this view as the resolved cache's owner, so its teardown
+  // can't clear a cache another view has since claimed (see setTrpcCache).
+  // Module scope: used by both the run path and the hashchange teardown.
+  const CACHE_OWNER = 'dashboard';
+
   /* ── Helpers ─────────────────────────────────────────────────────── */
   const db_trpc = (ep, input) => trpc(ep, input, { retry: true });
 
@@ -823,7 +828,7 @@ const DashboardTool = (() => {
     $load.disabled = true;
     setStatus('');
     setRateLimitHandler(reportRateLimit);
-    setTrpcCache(true);   // dedupe the country/profile fetches shared across cards
+    setTrpcCache(true, CACHE_OWNER);   // dedupe the country/profile fetches shared across cards
     $grid.innerHTML = `<div class="dash-loading"><span class="dash-spinner"></span> Looking up “${escapeHtml(raw)}”…</div>`;
 
     try {
@@ -864,7 +869,7 @@ const DashboardTool = (() => {
   // views behave exactly as before.
   window.addEventListener('hashchange', () => {
     const view = location.hash.replace(/^#/, '').split('?')[0] || 'home';
-    if (view !== 'dashboard' && mounted) { setTrpcCache(false); mounted = false; }
+    if (view !== 'dashboard' && mounted) { setTrpcCache(false, CACHE_OWNER); mounted = false; }
   });
 
   /* ── Wire-up ─────────────────────────────────────────────────────── */

@@ -335,6 +335,10 @@ const IrishFactoryTaxTool = (function () {
       </div>`;
   }
 
+  // Identifies this view as the resolved cache's owner, so its teardown
+  // can't clear a cache another view has since claimed (see setTrpcCache).
+  const CACHE_OWNER = 'factory-tax';
+
   async function load() {
     $refresh.disabled = true;
     $summary.innerHTML = '';
@@ -342,7 +346,7 @@ const IrishFactoryTaxTool = (function () {
     $logReport.innerHTML = '';
     setStatus('');
     steps.reset();
-    setTrpcCache(true);
+    setTrpcCache(true, CACHE_OWNER);
     nameById = {};
     homeCountryById = {};
     homeCountryInfoById = {};
@@ -480,7 +484,7 @@ const IrishFactoryTaxTool = (function () {
       setStatus(`Error: ${e.message}`, true);
     } finally {
       $refresh.disabled = false;
-      setTrpcCache(false);
+      setTrpcCache(false, CACHE_OWNER);
     }
   }
 
