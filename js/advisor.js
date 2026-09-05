@@ -83,19 +83,8 @@ const AdvisorTool = (() => {
 
   // Current Party Ethics production rules, mirrored from the live game's
   // Industrialism config and checked against its production-bonus API.
-  const INDUSTRIALISM_SPECIALISATION_ITEMS = new Set([
-    'lightAmmo', 'ammo', 'heavyAmmo', 'concrete', 'steel', 'iron',
-    'limestone', 'petroleum', 'oil', 'lead', 'wood', 'paper',
-  ]);
-  const AGRARIAN_DEPOSIT_ITEMS = new Set(['coca', 'grain', 'livestock', 'fish']);
-  const SPECIALISATION_MODIFIER_BY_TIER = { 1: 10, 2: 30 };
-  const DEPOSIT_MODIFIER_BY_TIER = { '-1': 10, '-2': 30 };
-  const INDUSTRIALISM_LABEL_BY_TIER = {
-    1: 'Industrialist',
-    2: 'Fanatic Industrialist',
-    '-1': 'Agrarian',
-    '-2': 'Fanatic Agrarian',
-  };
+  // The bonus tables and computeProductionBonus live in shared.js — this
+  // header documents the model they implement.
 
   // Companion endpoint for industrialism. Lives on Hattorius's
   // warerastats.io, proxied through the same worker that fronts the
@@ -206,64 +195,7 @@ const AdvisorTool = (() => {
     );
   }
 
-  function isDepositActive(dep) {
-    if (!dep) return false;
-    const now = Date.now();
-    const starts = dep.startsAt ? new Date(dep.startsAt).getTime() : 0;
-    const ends   = dep.endsAt   ? new Date(dep.endsAt).getTime()   : 0;
-    return now >= starts && now <= ends;
-  }
-
-  function industrialismTier(country) {
-    const tier = country?.industrialism;
-    return [-2, -1, 0, 1, 2].includes(tier) ? tier : 0;
-  }
-
-  /**
-   * Compute the four-component production bonus for a (country, region,
-   * item) combination. Returns null if country is unknown.
-   *
-   * The asymmetric gating below is the heart of the model and was verified
-   * against many in-game tooltips. Do not change without re-verifying:
-   *
-   *   • Strategic + Specialisation fire on an eligible specialised item;
-   *     the modifier is +10 at Industrialism +1 or +30 at +2.
-   *   • Deposit fires whenever there's an active matching deposit, EXCEPT
-   *     when the country specialises in the item AND is industrialist
-   *     (deposit suppressed — see header comment for verification).
-   *   • DepositCountry fires only for the four eligible deposit resources;
-   *     the modifier is +10 at Industrialism -1 or +30 at -2.
-   */
-  function computeBonus(country, region, itemCode) {
-    if (!country) return null;
-
-    const isSpecialised = country.specializedItem === itemCode;
-    const tier          = industrialismTier(country);
-
-    // Fanatic Agrarian disables specialization benefits. Such countries
-    // cannot normally retain a specialization, but guard stale API data too.
-    const strategic = isSpecialised && tier !== -2
-      ? (country.strategicResources?.bonuses?.productionPercent || 0)
-      : 0;
-    const specialisation = isSpecialised
-      && INDUSTRIALISM_SPECIALISATION_ITEMS.has(itemCode)
-      ? (SPECIALISATION_MODIFIER_BY_TIER[tier] || 0) : 0;
-
-    const hasMatchingDeposit = !!region?.deposit
-      && region.deposit.type === itemCode
-      && isDepositActive(region.deposit)
-      && !(isSpecialised && tier > 0);
-    const deposit        = hasMatchingDeposit ? (region.deposit.bonusPercent || 0) : 0;
-    const depositCountry = hasMatchingDeposit && AGRARIAN_DEPOSIT_ITEMS.has(itemCode)
-      ? (DEPOSIT_MODIFIER_BY_TIER[tier] || 0) : 0;
-
-    const total   = strategic + specialisation + deposit + depositCountry;
-    const tax     = country.taxes?.income ?? 0;
-    const netMult = (1 + total / 100) * (1 - tax / 100);
-    const depositEndsAt = hasMatchingDeposit ? region.deposit.endsAt : null;
-    const industrialismLabel = INDUSTRIALISM_LABEL_BY_TIER[tier] || 'Industrialism';
-    return { strategic, specialisation, deposit, depositCountry, depositEndsAt, tier, industrialismLabel, total, tax, netMult };
-  }
+  // isDepositActive / industrialismTier / computeProductionBonus live in shared.js.
 
   async function loadCountriesParallel(countries) {
     const byId = {};
@@ -373,7 +305,7 @@ const AdvisorTool = (() => {
   function analyseCompany(company, allRegions, regionsByCountry, countryById) {
     const currentRegion  = allRegions[company.region];
     const currentCountry = currentRegion ? countryById[currentRegion.country] : null;
-    const currentBonus   = computeBonus(currentCountry, currentRegion, company.itemCode);
+    const currentBonus   = computeProductionBonus(currentCountry, currentRegion, company.itemCode);
 
     // Enumerate every (country, region) pair. Most produce 0 bonus and
     // get filtered later by sort; the search space is small enough that
@@ -384,7 +316,7 @@ const AdvisorTool = (() => {
       if (!country) continue;
       const regs = regionsByCountry[cid] || [];
       for (const region of regs) {
-        const bonus = computeBonus(country, region, company.itemCode);
+        const bonus = computeProductionBonus(country, region, company.itemCode);
         if (!bonus) continue;
         candidates.push({ country, region, ...bonus });
       }

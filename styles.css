@@ -2815,3 +2815,9 @@ html[data-theme="light"] .idd-period-panel input { color-scheme: light; }
   .sc-op { display: none; }
   .sc-card select { width: 100%; }
 }
+
+/* Daily Profit — inline "reset to market" link beside the wage override */
+.dp-linkbtn { background: none; border: 0; padding: 0 0 0 4px; font: inherit; font-size: 11px;
+              color: var(--accent); cursor: pointer; text-decoration: underline; }
+.dp-linkbtn:hover { filter: brightness(1.15); }
+.dp-linkbtn.dp-hide { display: none; }

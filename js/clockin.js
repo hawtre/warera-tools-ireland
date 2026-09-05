@@ -21,7 +21,13 @@
  *  Payroll projection: alongside the timeline, the top of the view
  *  shows projected payroll over 3h / 6h / 10h. Per-worker formula:
  *    actions(h) = floor((currentEnergy + h × hourlyRegen) / 10)
- *    payroll(h) = Σ actions × production × (1 + fidelity/100) × wage
+ *    payroll(h) = Σ actions × production × wage
+ *  Fidelity does NOT enter the wage bill. It lifts the company's OUTPUT
+ *  per production point, not the production points the worker sells, so
+ *  the employer pays the same. Verified against wage transactions: money
+ *  / quantity is exactly the posted wage, and quantity tracks the raw
+ *  production skill (mean 31.47 over 391 clock-ins for a fidelity-10
+ *  worker with production 31 — a fidelity-lifted 34.1 is ruled out).
  *  All inputs come from calls already made — no new endpoints.
  *
  *  Access: restricted to Irish citizens (enforceIrishOnly from
@@ -412,8 +418,8 @@ const ClockInTool = (() => {
       }
       const actions = maxActionsFromFullBar(w);
       if (actions === 0) continue;
-      const fidelityMult = 1 + ((w.fidelity || 0) / 100);
-      total += actions * w.production * fidelityMult * w.wage;
+      // No fidelity multiplier: wages are paid on raw production points.
+      total += actions * w.production * w.wage;
       contributors++;
     }
     return { total, contributors, unknown };

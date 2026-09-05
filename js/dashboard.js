@@ -11,6 +11,9 @@
  *    ⏱ Clock-In    — each worker: status pill, last clock-in, stat chips,
  *                    plus 24h payroll
  *    📈 Daily Profit— simplified projected income broken into rows
+ *                    (companies + salary only — missions, case sales and
+ *                    deductions are conditional, so they belong to the full
+ *                    tool at #profit, which has controls for them)
  *    💰 Wealth      — current total, 7-day delta, gradient area chart
  *    🤝 Buddy       — reciprocal-pair status; join CTA if not in one
  *    🔫 Military Unit— Irish-MU status; join CTA if not in one
@@ -19,10 +22,10 @@
  *  via #dashboard (or #dashboard?u=<name>).
  *
  *  Reuse: the economic model (production-bonus maths, net-per-PP pricing,
- *  salary modelling, mission rewards) and the clock-in/status logic are
- *  ported from js/daily-profit.js and js/clockin.js, and the migration
- *  scoring from js/advisor.js, so the numbers and thresholds agree with
- *  the full tools.
+ *  salary modelling) and the clock-in/status logic are ported from
+ *  js/daily-profit.js and js/clockin.js, and the migration scoring from
+ *  js/advisor.js, so the numbers and thresholds agree with the full tools
+ *  for everything this page actually shows.
  *
  *  Cards fill independently — cheap ones (Wealth, MU) land within a
  *  second; the heavy economy load (Migration + Profit) lands last. Each
@@ -60,46 +63,7 @@ const DashboardTool = (() => {
     return `<span class="dash-ic"><img src="images/${f}" alt="" onerror="this.parentElement.textContent='📦'"></span>`;
   }
 
-  /* ── Production-bonus model (ported from daily-profit.js / advisor) ── */
-  const INDUSTRIALISM_SPECIALISATION_ITEMS = new Set([
-    'lightAmmo', 'ammo', 'heavyAmmo', 'concrete', 'steel', 'iron',
-    'limestone', 'petroleum', 'oil', 'lead', 'wood', 'paper',
-  ]);
-  const AGRARIAN_DEPOSIT_ITEMS = new Set(['coca', 'grain', 'livestock', 'fish']);
-  const SPECIALISATION_MODIFIER_BY_TIER = { 1: 10, 2: 30 };
-  const DEPOSIT_MODIFIER_BY_TIER = { '-1': 10, '-2': 30 };
-  const isDepositActive = (d) => {
-    if (!d) return false;
-    const now = Date.now();
-    const s = d.startsAt ? new Date(d.startsAt).getTime() : 0;
-    const e = d.endsAt   ? new Date(d.endsAt).getTime()   : 0;
-    return now >= s && now <= e;
-  };
-  const industrialismTier = (country) => {
-    const tier = country?.industrialism;
-    return [-2, -1, 0, 1, 2].includes(tier) ? tier : 0;
-  };
-  function computeBonus(country, region, itemCode) {
-    if (!country) return null;
-    const isSpecialised = country.specializedItem === itemCode;
-    const tier = industrialismTier(country);
-    const strategic = isSpecialised && tier !== -2
-      ? (country.strategicResources?.bonuses?.productionPercent || 0)
-      : 0;
-    const specialisation = isSpecialised && INDUSTRIALISM_SPECIALISATION_ITEMS.has(itemCode)
-      ? (SPECIALISATION_MODIFIER_BY_TIER[tier] || 0)
-      : 0;
-    const hasDep = !!region?.deposit && region.deposit.type === itemCode && isDepositActive(region.deposit)
-      && !(isSpecialised && tier > 0);
-    const deposit = hasDep ? (region.deposit.bonusPercent || 0) : 0;
-    const depositCountry = hasDep && AGRARIAN_DEPOSIT_ITEMS.has(itemCode)
-      ? (DEPOSIT_MODIFIER_BY_TIER[tier] || 0)
-      : 0;
-    const total = strategic + specialisation + deposit + depositCountry;
-    const tax = country.taxes?.income ?? 0;
-    const netMult = (1 + total / 100) * (1 - tax / 100);
-    return { total, tax, netMult, region, country };
-  }
+  // Production-bonus model lives in shared.js (computeProductionBonus).
 
   /* ── DOM ─────────────────────────────────────────────────────────── */
   const $username = document.getElementById('dash-username');
@@ -687,7 +651,7 @@ const DashboardTool = (() => {
         const region  = regionsObj[c.region];
         const country  = region ? countryById[region.country] : null;
         c._region = region;
-        c._bonus  = computeBonus(country, region, c.itemCode) || { total: 0, tax: country?.taxes?.income ?? null, netMult: 1, country };
+        c._bonus  = computeProductionBonus(country, region, c.itemCode) || { total: 0, tax: country?.taxes?.income ?? null, netMult: 1, country };
         c._netPP  = netPerPP(c.itemCode, 0);
         c._dailyAE = aeDailyProd(c.activeUpgradeLevels?.automatedEngine);
         c._aeBonus = c._dailyAE * (1 + c._bonus.total / 100);
@@ -716,6 +680,10 @@ const DashboardTool = (() => {
       const salaryWorksPerDay = skill(full, 'energy') * WORK_FACTOR;
       const salaryAvg = salaryInfo.count ? salaryInfo.total / salaryInfo.count : 0;
       const salaryDaily = salaryWorksPerDay * salaryAvg;
+      // Companies + salary only, on purpose. Mission money and case sales are
+      // conditional on what you actually completed and sold, and this card has
+      // no controls to say otherwise — the full tool does, so it owns them.
+      // The card would rather understate than assert income you can't correct.
       const total = companiesIncome + salaryDaily;
 
       const incRow = (label, value, sub) =>
@@ -723,7 +691,7 @@ const DashboardTool = (() => {
       setNote('profit', `${companies.length} compan${companies.length === 1 ? 'y' : 'ies'}`);
       setBody('profit', `
         <div class="dash-lead">₿${fmtK(total)}<small>/day</small></div>
-        <div class="dash-sub">Projected daily profit.</div>
+        <div class="dash-sub">Companies and salary. Missions and case sales live in the full tool, where you can tick what you actually did.</div>
         <div class="dash-inc-list">
           ${incRow('Companies', companiesIncome, `${companies.length} active, current output`)}
           ${incRow('Salary', salaryDaily, salaryInfo.count ? `~${salaryWorksPerDay.toFixed(0)} works/day × ${salaryAvg.toFixed(2)} net` : 'no recent wages')}
@@ -750,7 +718,7 @@ const DashboardTool = (() => {
         for (const cid in countryById) {
           const country = countryById[cid];
           for (const region of (regionsByCountry[cid] || [])) {
-            const b = computeBonus(country, region, code);
+            const b = computeProductionBonus(country, region, code);
             if (b && scoreOf(b, worksHere) > scoreOf(best, worksHere)) {
               best = { total: b.total, netMult: b.netMult, country, region };
             }

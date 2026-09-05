@@ -24,8 +24,8 @@
 })();
 </script>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 3 2'%3E%3Crect width='1' height='2' fill='%23009A49'/%3E%3Crect x='1' width='1' height='2' fill='white'/%3E%3Crect x='2' width='1' height='2' fill='%23FF7900'/%3E%3C/svg%3E" />
-<link rel="stylesheet" href="styles.css?v=20260902a" />
-<link rel="stylesheet" href="community.css?v=20260617h" />
+<link rel="stylesheet" href="styles.css?v=20260905b" />
+<link rel="stylesheet" href="community.css?v=20260905b" />
 <!-- Privacy-friendly analytics (Umami) -->
 <!-- Analytics: the previous Umami website-id belonged to the original
      maintainer's cloud.umami.is account, which we no longer control, so it
@@ -1092,7 +1092,7 @@
     <div class="tool-header">
       <div class="title-block">
         <h2><span>📈</span> Daily Profit</h2>
-        <p>What each product is worth per production point, and your projected daily profit — auto-filled from the game.</p>
+        <p>Which products are worth making, whether hiring is worth it, and your projected daily profit — auto-filled from the game.</p>
       </div>
     </div>
 
@@ -1103,9 +1103,12 @@
         (companies, salary, missions, case sales) and a table of which products pay best. It all fills in from
         the game automatically; then you can fine-tune:</p>
         <ul>
-          <li>Tick only the missions you actually complete.</li>
+          <li>Tick only the missions you actually complete. Weekly rewards are off by default; tick them on the day you claim them.</li>
           <li>Enter cases sold today, and any company moves / production changes.</li>
           <li>Adjust the engine / staff boxes to try "what if". Totals update instantly.</li>
+          <li>Click any column heading to sort the product table. It opens on <strong>Total max</strong>, highest first.</li>
+          <li><strong>Worker net wage</strong> is read from the live job market. Type over it to test a different wage —
+              <strong>Lowest wage</strong> and <strong>Profitable worker</strong> recalculate as you type.</li>
         </ul>
         <div class="dp-credit">💡 Tool idea, formulas &amp; testing by <strong>Adro</strong>.</div>
       </div>
@@ -1142,7 +1145,7 @@
     <!-- Income summary + assumptions -->
     <div class="bf-card hidden" id="dp-stats-card">
       <h3 id="dp-stats-head">Projected income</h3>
-      <p class="bf-card-sub">Per day, at current market prices. Engine PP / Staff PP default to your real output — edit them to model a what-if and your company income scales live (zero them → zero).</p>
+      <p class="bf-card-sub">Per day, at current market prices. Engine PP / Staff PP default to your real output — edit them to model a what-if and your company income scales live (zero them → zero). Worker net wage comes from the live job market and drives the Lowest wage and Profitable worker columns.</p>
       <div class="dp-assump" id="dp-assump"></div>
       <div class="dp-income" id="dp-income"></div>
     </div>
@@ -1150,7 +1153,7 @@
     <!-- Per-product profitability table -->
     <div class="bf-card hidden" id="dp-table-card">
       <h3>Profit by product</h3>
-      <p class="bf-card-sub"><strong>Net / PP</strong> = profit per production point (bonus-free). <strong>Max company</strong> / <strong>Max employee</strong> = profit if 100% of your company AE / your employees went to that product at its best bonus (<strong>Total max</strong> = both). <strong>Actual / day</strong> = what your companies currently make of it. <strong>Lowest wage</strong> = the least you'd post to land a worker after that country's income tax.</p>
+      <p class="bf-card-sub"><strong>Bonus</strong> is the best production bonus available for that product; <strong>Country · tax</strong> and <strong>Deposit</strong> show where it comes from and whether it expires. <strong>Max company</strong> / <strong>Max employee</strong> = profit if 100% of your company AE / your employees went to that product at that bonus (<strong>Total max</strong> = both). <strong>Emp.</strong> is how many of your employees make it today and <strong>Actual / day</strong> is what your companies currently earn from it. <strong>Lowest wage</strong> is the least you'd post to match what a worker can earn elsewhere, after that country's income tax; <strong>Profitable worker</strong> says whether hiring one at that wage would pay for itself. Click any heading to sort.</p>
       <div class="dp-table-wrap">
         <table class="dp-table" id="dp-table"></table>
       </div>
@@ -1177,15 +1180,29 @@
         <ul>
           <li><strong>Net / PP</strong> = <code>(salePrice − Σ(recipe × rawPrice)) ÷ productionPoints</code> — the raw profit per
               production point, <em>before</em> the region bonus (the bonus is applied to the PP throughput instead).
-              Recipes &amp; production points from <code>gameConfig</code>; prices are the live market <strong>lowest offer</strong>
-              (best ask, what the game shows) via <code>tradingOrder.getTopOrders</code>;
-              the production bonus from the same region/country model the Migration Advisor uses (best region shown).</li>
+              It isn't a column in this layout, but it's what <strong>Max company</strong>, <strong>Max employee</strong>
+              and <strong>Actual / day</strong> are all built from, and the line under the table names whichever product
+              scores highest on it. Recipes &amp; production points from <code>gameConfig</code>; prices are the live market
+              <strong>lowest offer</strong> (best ask, what the game shows) via <code>tradingOrder.getTopOrders</code>;
+              the production bonus from the shared region/country model in <code>shared.js</code> that the Migration
+              Advisor and Dashboard also use (best region shown).</li>
           <li><strong>Daily throughput</strong> ≈ your employees' output (<code>production × energy × 0.24 × (1 + fidelity)</code> PP/day each),
               your own self-work (<code>production × entrepreneurship × 0.24</code>, no fidelity/wage), plus each company's
               automated-engine production. It's an estimate — edit the field to match your real numbers.</li>
           <li><strong>Max company / Max employee</strong> are theoretical upper bounds: 100% of your company AE (or
               all your employees, incl. you, minus their wages) producing that one product at its best bonus.
-              <strong>Total max</strong> adds them. <strong>Actual / day</strong> sums what your companies currently make of each item.</li>
+              <strong>Total max</strong> adds them. <strong>Actual / day</strong> sums what your companies currently make of each item.
+              Fidelity and the region bonus stack <em>additively</em> (<code>1 + fidelity% + bonus%</code>), matching the game.</li>
+          <li><strong>Lowest wage</strong> starts from the live job market, not a fixed rate: of all open offers
+              (<code>workOffer.getWorkOffersPaginated</code>, sorted by take-home pay) we drop the ones nobody could qualify
+              for — the game lets employers demand more energy or production than a maxed player can have — then drop
+              companies already at storage capacity, and take the 5th best to skip outliers. That net rate is grossed up
+              by each country's income tax. Override it in <strong>Worker net wage</strong> to model a different offer.</li>
+          <li><strong>Profitable worker</strong> answers "is one more hire worth it for this product?". A reference worker
+              (70 energy / 34 production = 571.2 PP/day) is costed at the lowest wage, their output converted to items and
+              valued at the profit per item. ✅ pays from day one, 🟡 only once fidelity has grown for five days
+              (fidelity lifts output but not the wage, so it's free), ❌ neither. It assumes the product's best-bonus
+              country, like the columns beside it — not your company's current location.</li>
           <li>Prices come live from the market (lowest sell offer). The <a href="https://warerastats.io/" target="_blank" rel="noopener">warerastats</a> average is only a fallback for any item whose order book is empty.</li>
           <li>Irish-citizens only (<code>?bypass=1</code> lifts it).</li>
         </ul>
@@ -1613,30 +1630,30 @@ Please transfer: ₿X</pre>
 </footer>
 
 <!-- Load order matters: shared first, tools next, router last. -->
-<script src="js/shared.js?v=20260902a"></script>
-<script src="js/mu.js?v=20260617h"></script>
-<script src="js/buddy-finder.js?v=20260902a"></script>
-<script src="js/advisor.js?v=20260902a"></script>
-<script src="js/clockin.js?v=20260617h"></script>
-<script src="js/wealth.js?v=20260617h"></script>
-<script src="js/daily-profit.js?v=20260902a"></script>
-<script src="js/daily-profit-dev.js?v=20260902a"></script>
-<script src="js/dashboard.js?v=20260902a"></script>
-<script src="js/donation-draw.js?v=20260722a"></script>
-<script src="js/irish-tax.js?v=20260703a"></script>
-<script src="js/irish-tax-dev.js?v=20260702a"></script>
-<script src="js/irish-tax-partner.js?v=20260703a"></script>
-<script src="js/irish-factory-tax.js?v=20260703a"></script>
-<script src="js/tax-deal-dashboard.js?v=20260902a"></script>
-<script src="js/buddy.js?v=20260617h"></script>
-<script src="js/battle-orders.js?v=20260617h"></script>
-<script src="js/beer.js?v=20260617h"></script>
-<script src="js/roster.js?v=20260617h"></script>
-<script src="js/no-resets-table.js?v=20260629a"></script>
-<script src="js/sp-advisor-core.js?v=20260629a"></script>
-<script src="js/sp-advisor.js?v=20260629a"></script>
-<script src="js/softcap.js?v=20260902d"></script>
-<script src="js/toolkit.js?v=20260617h"></script>
-<script src="js/router.js?v=20260617h"></script>
+<script src="js/shared.js?v=20260905b"></script>
+<script src="js/mu.js?v=20260905b"></script>
+<script src="js/buddy-finder.js?v=20260905b"></script>
+<script src="js/advisor.js?v=20260905b"></script>
+<script src="js/clockin.js?v=20260905b"></script>
+<script src="js/wealth.js?v=20260905b"></script>
+<script src="js/daily-profit.js?v=20260905b"></script>
+<script src="js/daily-profit-dev.js?v=20260905b"></script>
+<script src="js/dashboard.js?v=20260905b"></script>
+<script src="js/donation-draw.js?v=20260905b"></script>
+<script src="js/irish-tax.js?v=20260905b"></script>
+<script src="js/irish-tax-dev.js?v=20260905b"></script>
+<script src="js/irish-tax-partner.js?v=20260905b"></script>
+<script src="js/irish-factory-tax.js?v=20260905b"></script>
+<script src="js/tax-deal-dashboard.js?v=20260905b"></script>
+<script src="js/buddy.js?v=20260905b"></script>
+<script src="js/battle-orders.js?v=20260905b"></script>
+<script src="js/beer.js?v=20260905b"></script>
+<script src="js/roster.js?v=20260905b"></script>
+<script src="js/no-resets-table.js?v=20260905b"></script>
+<script src="js/sp-advisor-core.js?v=20260905b"></script>
+<script src="js/sp-advisor.js?v=20260905b"></script>
+<script src="js/softcap.js?v=20260905b"></script>
+<script src="js/toolkit.js?v=20260905b"></script>
+<script src="js/router.js?v=20260905b"></script>
 </body>
 </html>

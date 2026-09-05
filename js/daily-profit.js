@@ -2,6 +2,11 @@
  *  DAILY PROFIT  (powers the #profit view inside the shell)
  *  Extracted from the standalone daily-profit.html on merge. Self-
  *  contained IIFE; the shell drives it via DailyProfitTool.activate({u}).
+ *
+ *  The product table is sortable: click any header. It defaults to Total
+ *  max descending. Net/PP is no longer a column (Sale and Raw cost feed
+ *  it, and Max/Actual already embed it) but is still computed, and the
+ *  footer note reports the best-Net/PP product regardless of sort order.
  * ═══════════════════════════════════════════════════════════════════ */
 const DailyProfitTool = (() => {
   const WS_BASE = WARERASTATS_BASE;   // shared.js; localhost points it at `wrangler dev`
@@ -14,6 +19,92 @@ const DailyProfitTool = (() => {
   const WORK_FACTOR = 0.24;
   const RECENT_KEY = 'dp:recent-usernames';
   const RECENT_MAX = 8;
+  // "Profitable worker" column: the reference hire we test each product
+  // against. Defined by SKILL LEVELS, resolved to values from gameConfig at
+  // load (energy lvl 4 = 70, production lvl 8 = 34 → 70 × 0.24 × 34 = 571.2
+  // PP/day), per R00ted's spec.
+  //
+  // Note this is NOT a day-1 worker: those levels cost 46 skill points
+  // (10 + 36). A genuine level-0 account makes 30 × 0.24 × 10 = 72 PP/day.
+  // It's a mid-game hire — comparable to a real employee at ~43 points.
+  //
+  // The value only scales the ₿/day figure, which isn't rendered: profit is
+  // basePP × (margin per PP), so basePP factors out of both the sign (the
+  // ✅/🟡/❌ verdict) and the ordering (every row shares it). Don't "correct"
+  // it expecting the verdicts to move — only the margin can do that.
+  const GENERIC_WORKER_SKILL_LEVELS = { energy: 4, production: 8 };
+  const GENERIC_BASE_PP_FALLBACK = 571.2;   // if gameConfig is unavailable
+
+  function genericWorkerFromConfig(gameConfig) {
+    const lvl = (skill, level) => gameConfig?.skills?.[skill]?.levels?.[level]?.value;
+    const energy     = lvl('energy',     GENERIC_WORKER_SKILL_LEVELS.energy);
+    const production = lvl('production', GENERIC_WORKER_SKILL_LEVELS.production);
+    if (typeof energy !== 'number' || typeof production !== 'number') {
+      return { energy: 70, production: 34, basePP: GENERIC_BASE_PP_FALLBACK };
+    }
+    return { energy, production, basePP: energy * WORK_FACTOR * production };
+  }
+
+  // Lowest wage is benchmarked against the live job market rather than a frozen
+  // constant (it used to be 0.121, a stale snapshot of the then-top offer).
+  // workOffer.getWorkOffersPaginated returns offers already sorted by
+  // wageAfterTax descending, so we only need the head of the book.
+  const WAGE_RANK_FROM_TOP    = 5;    // skip outliers at the very top
+  const MARKET_OFFER_PAGE     = 200;  // ~66 KB; yields ~120 attainable offers
+  const MARKET_COMPANY_PROBE  = 40;   // how far down we check company.isFull
+
+  // Highest value any player can reach in a skill (level 10 in gameConfig):
+  // energy 130, production 40.
+  function maxSkillValue(gameConfig, skill) {
+    const levels = gameConfig?.skills?.[skill]?.levels;
+    if (!levels) return null;
+    const vals = Object.values(levels).map(l => l?.value).filter(v => typeof v === 'number');
+    return vals.length ? Math.max(...vals) : null;
+  }
+
+  async function fetchMarketNetWage(gameConfig) {
+    const maxEnergy     = maxSkillValue(gameConfig, 'energy');
+    const maxProduction = maxSkillValue(gameConfig, 'production');
+    const res = await dp_trpc('workOffer.getWorkOffersPaginated',
+      { limit: MARKET_OFFER_PAGE }).catch(() => null);
+    const offers = res?.items || [];
+    if (!offers.length) return null;
+
+    // Drop offers nobody could ever qualify for. createWorkOffer validates
+    // minEnergy/minProduction as min(0) with NO upper bound, so employers
+    // routinely post requirements above the level-10 caps — usually a PP/day
+    // figure typed into a skill field (minProduction 450, 5050, 39852 are all
+    // live right now). These dominate the head of the book: 19 of the top 20
+    // by net wage, which is exactly the skew that ranking by wage would
+    // otherwise inherit.
+    const attainable = offers.filter(o =>
+      (maxEnergy     == null || o.minEnergy     == null || o.minEnergy     <= maxEnergy) &&
+      (maxProduction == null || o.minProduction == null || o.minProduction <= maxProduction));
+
+    // A company at storage capacity can't absorb more production, so its offer
+    // isn't a real alternative for a worker. isFull lives on the company, not
+    // the offer, so only probe the head of the (already sorted) list rather
+    // than resolving all ~3000. A lookup that fails leaves the offer in: we
+    // can't prove it's full, and dropping it would understate the market.
+    const probe = attainable.slice(0, MARKET_COMPANY_PROBE);
+    const ids = [...new Set(probe.map(o => o.company).filter(Boolean))];
+    const companies = await trpcManyValues('company.getById',
+      ids.map(companyId => ({ companyId }))).catch(() => []);
+    const full = new Map(ids.map((id, i) => [id, companies[i]?.isFull === true]));
+    const open = probe.filter(o => !full.get(o.company));
+
+    const net = open[WAGE_RANK_FROM_TOP - 1]?.wageAfterTax;
+    return typeof net === 'number' && net > 0 ? net : null;
+  }
+
+  // The net wage every Lowest-wage figure is grossed up from. wageOverride is
+  // the manual "what if I posted this instead" input; null falls back to the
+  // market rank-5. Null overall means the market lookup failed, which blanks
+  // the Lowest wage and Profitable worker columns.
+  function netWageRate() {
+    return model.wageOverride != null ? model.wageOverride : model.marketNetWage;
+  }
+
 
   // Display name + category, matching the in-game / spreadsheet labels.
   const META = {
@@ -45,48 +136,7 @@ const DailyProfitTool = (() => {
     coca:'coca.png',lightAmmo:'lightAmmo.png',ammo:'ammo.png',cocain:'cocain.png',heavyAmmo:'heavyAmmo.png',
   };
 
-  // ── Advisor's verified production-bonus model (see js/advisor.js) ──
-  const INDUSTRIALISM_SPECIALISATION_ITEMS = new Set([
-    'lightAmmo', 'ammo', 'heavyAmmo', 'concrete', 'steel', 'iron',
-    'limestone', 'petroleum', 'oil', 'lead', 'wood', 'paper',
-  ]);
-  const AGRARIAN_DEPOSIT_ITEMS = new Set(['coca', 'grain', 'livestock', 'fish']);
-  const SPECIALISATION_MODIFIER_BY_TIER = { 1: 10, 2: 30 };
-  const DEPOSIT_MODIFIER_BY_TIER = { '-1': 10, '-2': 30 };
-  const isDepositActive = (d) => {
-    if (!d) return false;
-    const now = Date.now();
-    const s = d.startsAt ? new Date(d.startsAt).getTime() : 0;
-    const e = d.endsAt ? new Date(d.endsAt).getTime() : 0;
-    return now >= s && now <= e;
-  };
-  const industrialismTier = (country) => {
-    const tier = country?.industrialism;
-    return [-2, -1, 0, 1, 2].includes(tier) ? tier : 0;
-  };
-  function computeBonus(country, region, itemCode) {
-    if (!country) return null;
-    const isSpecialised = country.specializedItem === itemCode;
-    const tier = industrialismTier(country);
-    const strategic = isSpecialised && tier !== -2
-      ? (country.strategicResources?.bonuses?.productionPercent || 0)
-      : 0;
-    const specialisation = isSpecialised && INDUSTRIALISM_SPECIALISATION_ITEMS.has(itemCode)
-      ? (SPECIALISATION_MODIFIER_BY_TIER[tier] || 0)
-      : 0;
-    const hasDep = !!region?.deposit && region.deposit.type === itemCode && isDepositActive(region.deposit)
-      && !(isSpecialised && tier > 0);
-    const deposit = hasDep ? (region.deposit.bonusPercent || 0) : 0;
-    const depositCountry = hasDep && AGRARIAN_DEPOSIT_ITEMS.has(itemCode)
-      ? (DEPOSIT_MODIFIER_BY_TIER[tier] || 0)
-      : 0;
-    const total = strategic + specialisation + deposit + depositCountry;
-    const tax = country.taxes?.income ?? 0;
-    // Surface whether the bonus leans on a temporary regional deposit (these
-    // expire — region.deposit has startsAt/endsAt), so the table can flag it.
-    const dep = hasDep ? { bonus: deposit + depositCountry, endsAt: region.deposit.endsAt, type: region.deposit.type } : null;
-    return { total, tax, region, country, deposit: dep };
-  }
+  // Production-bonus model lives in shared.js (computeProductionBonus).
 
   // ── DOM ─────────────────────────────────────────────────────────
   const $username = document.getElementById('dp-username');
@@ -285,6 +335,12 @@ const DailyProfitTool = (() => {
         fetch(`${WS_BASE}/countries`).then(r => r.json()).catch(() => []),
       ]);
       const gameItems = gameConfig?.items || {};
+      // Reference hire for the Profitable-worker column, plus the live market
+      // wage its Lowest-wage benchmark is drawn from. A market miss leaves
+      // marketNetWage null, which blanks both columns rather than falling back
+      // to a stale guess.
+      const genericWorker = genericWorkerFromConfig(gameConfig);
+      const marketNetWage = await fetchMarketNetWage(gameConfig);
       // Pricing. The warerastats `avg` is a trailing average that lags the
       // market when a price moves (e.g. livestock/coca read low). So price from
       // the live order book — the LOWEST OFFER (best ask), i.e. the "buy it now"
@@ -293,7 +349,8 @@ const DailyProfitTool = (() => {
       const avgPrices = {};
       (Array.isArray(itemsArr) ? itemsArr : []).forEach(it => { if (it?.itemCode != null && typeof it.avg === 'number') avgPrices[it.itemCode] = it.avg; });
       const prices = {};
-      const priceCodes = Object.keys(META).filter(c => gameItems[c]);
+      // Mission cases need a sale price, but aren't producible goods in META.
+      const priceCodes = [...Object.keys(META).filter(c => gameItems[c]), 'case1'];
       steps.setStep(3, 'active', { sub: 'Pricing items from the live market', count: `0/${priceCodes.length}` });
       const books = await trpcManyValues('tradingOrder.getTopOrders',
         priceCodes.map(itemCode => ({ itemCode })),
@@ -347,7 +404,7 @@ const DailyProfitTool = (() => {
         for (const cid in countryById) {
           const country = countryById[cid];
           for (const region of (regionsByCountry[cid] || [])) {
-            const b = computeBonus(country, region, code);
+            const b = computeProductionBonus(country, region, code);
             if (b && b.total > best.total) best = b;
           }
         }
@@ -374,7 +431,7 @@ const DailyProfitTool = (() => {
         companyById[c._id] = c;
         const region = regionsObj[c.region];
         const country = region ? countryById[region.country] : null;
-        c._bonus = computeBonus(country, region, c.itemCode);
+        c._bonus = computeProductionBonus(country, region, c.itemCode);
         c._netPP = companyNetPP(c);                 // bonus-applied (self-work target + employee panel)
         c._dailyAE = aeDailyProd(c.activeUpgradeLevels?.automatedEngine);   // raw AE (shown in Companies table)
         c._aeBonus = c._dailyAE * (1 + (c._bonus ? c._bonus.total : 0) / 100); // AE with bonus (#3) — throughput
@@ -442,7 +499,7 @@ const DailyProfitTool = (() => {
       model = { user, prices, gameItems, bestBonus, companies, disabledCount, employees,
                 missionMoney, missionMoneyWeekly,
                 missionCasesDaily, missionCasesWeekly,
-                missionsDone: { daily: true, weekly: true },
+                missionsDone: { daily: true, weekly: false }, // opt in on the day weekly rewards are claimed
                 casesManual: null,   // manual "cases sold today" override; null = use modeled
                 movesManual: null,   // manual count of company moves / production changes
                 moveCost, concretePrice: (prices['concrete'] ?? null),
@@ -450,6 +507,8 @@ const DailyProfitTool = (() => {
                 salaryDaily: salaryModeled, salaryActual: salaryInfo.total, salaryCount: salaryInfo.count,
                 salaryWorksPerDay, salaryAvgPerWork,
                 enginesPP, staffPP, priceOverrides: {},
+                genericWorker, marketNetWage,
+                wageOverride: null,   // manual net-wage override; null = use market
                 selfPP: Math.round(selfContribution),
                 selfWorkItem: selfWorkCompany ? (META[selfWorkCompany.itemCode]?.name || selfWorkCompany.itemCode) : null,
                 selfPPbase: selfPP,   // self base PP (no fidelity/bonus); for Max Employee + picker
@@ -689,6 +748,15 @@ const DailyProfitTool = (() => {
         </select>
         <span class="dp-suffix">${Math.round(model.selfPPbase)} base PP</span>
       </div>` : ''}
+      <div class="dp-field">
+        <label title="Net wage a worker could earn elsewhere. Every Lowest wage figure is this grossed up for the country's income tax.">Worker net wage</label>
+        <input type="number" id="dp-netwage" value="${netWageRate() ?? ''}" min="0" step="0.001"
+               placeholder="${model.marketNetWage ?? 'unavailable'}">
+        <span class="dp-suffix">${model.marketNetWage == null
+          ? 'market lookup failed'
+          : `market rank ${WAGE_RANK_FROM_TOP}: ${fmt3(model.marketNetWage)}`}<button type="button" id="dp-netwage-reset"
+             class="dp-linkbtn${model.wageOverride == null ? ' dp-hide' : ''}">reset</button></span>
+      </div>
       ${priceFields}
     `;
     const $eng = $assump.querySelector('#dp-engines');
@@ -702,6 +770,21 @@ const DailyProfitTool = (() => {
     };
     $eng.addEventListener('input', onThroughput);
     $stf.addEventListener('input', onThroughput);
+    const $wage = $assump.querySelector('#dp-netwage');
+    const $wageReset = $assump.querySelector('#dp-netwage-reset');
+    if ($wage) $wage.addEventListener('input', e => {
+      const v = parseFloat(e.target.value);
+      // Blank or nonsense reverts to the market rate rather than zeroing it.
+      model.wageOverride = (isFinite(v) && v > 0) ? v : null;
+      if ($wageReset) $wageReset.classList.toggle('dp-hide', model.wageOverride == null);
+      renderTableAndIncome();   // table only — keeps focus while typing
+    });
+    if ($wageReset) $wageReset.addEventListener('click', () => {
+      model.wageOverride = null;
+      if ($wage) $wage.value = model.marketNetWage ?? '';
+      $wageReset.classList.add('dp-hide');
+      renderTableAndIncome();
+    });
     const $self = $assump.querySelector('#dp-selfwork');
     if ($self) $self.addEventListener('change', e => { assignSelfWork(e.target.value); renderAll(); });
     $assump.querySelectorAll('.dp-price-in').forEach(inp => {
@@ -722,6 +805,61 @@ const DailyProfitTool = (() => {
     return { eng, stf };
   }
 
+  // ── Table sort state ────────────────────────────────────────────
+  // Default: Total max, highest first. This layout doesn't render Net/PP, so
+  // defaulting to it would order the table by a number the user can't see;
+  // starting on Total max also means the ▼ arrow is visible from first paint.
+  // dir: 1 = asc, -1 = desc.
+  let sortState = { key: 'totalMax', dir: -1 };
+  const SORT_ACCESSORS = {
+    name: r => r.name.toLowerCase(),
+    bonus: r => r.bonus ?? -Infinity,
+    maxCompany: r => r.maxCompany ?? -Infinity,
+    maxEmployee: r => r.maxEmployee ?? -Infinity,
+    totalMax: r => r.totalMax ?? -Infinity,
+    empAssigned: r => r.empAssigned ?? -Infinity,
+    actual: r => r.actual ?? -Infinity,
+    lowWage: r => (r.lowWage != null && isFinite(r.lowWage)) ? r.lowWage : -Infinity,
+    profitable: r => r.employeeProfitDay5 ?? -Infinity,
+    country: r => r.country ? r.country.name.toLowerCase() : '',
+    deposit: r => r.deposit ? new Date(r.deposit.endsAt).getTime() : -Infinity,
+  };
+  function sortRows(rows) {
+    const acc = SORT_ACCESSORS[sortState.key] || SORT_ACCESSORS.totalMax;
+    rows.sort((a, b) => {
+      const av = acc(a), bv = acc(b);
+      if (typeof av === 'string' || typeof bv === 'string') return sortState.dir * String(av).localeCompare(String(bv));
+      return sortState.dir * ((av ?? -Infinity) - (bv ?? -Infinity));
+    });
+    return rows;
+  }
+
+  // A generic hire's value-add for this product: gross PP they'd generate at
+  // the lowest viable wage, converted to items made, valued at the product's
+  // net profit/item, minus what they'd cost to hire.
+  // Fidelity is a free rider on top of that: it grows 1%/day (day 0 → 0%,
+  // day 5 → 5%) and lifts OUTPUT only — the wage is still paid on the
+  // pre-fidelity base PP (same model as the Employees panel), so day 5 is
+  // strictly more profitable than day 0 for the same hire.
+  const FIDELITY_DAY5_PCT = 5;
+  function workerProfitability(code, it, bonusPct, lowWage) {
+    const ppPerItem = it?.productionPoints || 0;
+    if (!ppPerItem || lowWage == null) return { day0: null, day5: null };
+    const basePP = model.genericWorker?.basePP ?? GENERIC_BASE_PP_FALLBACK;
+    const sale = price(code);
+    const rc = rawCostOf(code);
+    if (sale == null || rc == null) return { day0: null, day5: null };
+    const netProfitPerItem = sale - rc;
+    // basePP is pre-fidelity and pre-bonus (energy × WORK_FACTOR ×
+    // production), so it is what the wage is charged on — same convention as
+    // a real employee's basePP.
+    const wageCost = basePP * lowWage;   // fidelity doesn't change what you pay
+    // Output carries fidelity + region bonus additively, matching empAdjPP.
+    const outputPP = (fidPct) => basePP * (1 + (fidPct + (bonusPct || 0)) / 100);
+    const profitAt = (fidPct) => (outputPP(fidPct) / ppPerItem) * netProfitPerItem - wageCost;
+    return { day0: profitAt(0), day5: profitAt(FIDELITY_DAY5_PCT) };
+  }
+
   function buildRows() {
     const rows = [];
     const { eng: engScale, stf: stfScale } = throughputScales();
@@ -732,8 +870,11 @@ const DailyProfitTool = (() => {
       const npp = netPerPP(code, 0);            // Net/PP = net profit ÷ PP (bonus-free)
       const bonusMult = 1 + (bb.total || 0) / 100;
       const tax = bb.tax ?? 0;
-      // Lowest viable wage: gross the going net rate (0.121) up for income tax.
-      const lowWage = 0.121 / (1 - tax / 100);
+      // Lowest viable wage: gross the market net rate up for this country's
+      // income tax, so the worker still nets what they could earn elsewhere.
+      // null when the market lookup failed — the column then renders as "–".
+      const rate = netWageRate();
+      const lowWage = rate == null ? null : rate / (1 - tax / 100);
 
       // Actual = bonus-free Net/PP × the company's bonused throughput (AE-with-bonus
       // + bonused staff) − wages. Engine & staff parts scale with the what-if fields.
@@ -749,32 +890,38 @@ const DailyProfitTool = (() => {
       // Max Company: all company AE → this product at its bonus.
       const maxCompany = (npp != null) ? npp * model.totalCompanyAE * bonusMult * engScale : null;
 
-      // Max Employee (per the sheet): gross = Σ(basePP×(1+fid)) × (1+bonus) × Net/PP;
+      // Max Employee: gross = Σ(basePP × (1 + fid% + bonus%)) × Net/PP;
       // wage cost = Σ(basePP × effWage), effWage = 0 for self, 0.106 for a buddy,
       // else max(their wage, lowest viable wage). Scales with the staff what-if.
+      // Fidelity and the region bonus stack ADDITIVELY, not multiplicatively —
+      // the game's own hire preview computes 1 + (bonus% + fidelity%)/100, and
+      // wages are paid on the raw base PP (verified against wage transactions:
+      // money/quantity is exactly the wage rate, and quantity tracks the
+      // worker's production skill, un-lifted by fidelity or bonus).
       let maxEmployee = null;
       if (npp != null) {
-        let grossPP = model.selfPPbase || 0;   // self (Me): fidelity 0
-        let wageCost = 0;                       // self pays no wage
+        let grossPP = (model.selfPPbase || 0) * bonusMult;   // self (Me): fidelity 0
+        let wageCost = 0;                                     // self pays no wage
         for (const e of model.employees) {
-          grossPP += e.basePP * (1 + e.fidelity / 100);
+          grossPP += e.basePP * (1 + (e.fidelity + (bb.total || 0)) / 100);
           wageCost += e.basePP * (e.buddy ? 0.106 : Math.max(e.wage, lowWage));
         }
-        maxEmployee = (grossPP * bonusMult * npp - wageCost) * stfScale;
+        maxEmployee = (grossPP * npp - wageCost) * stfScale;
       }
       // Total Max = company + employee, but a negative employee contribution is
       // floored at 0 (don't let unprofitable employees drag the company ceiling).
       const totalMax = (maxCompany != null && maxEmployee != null) ? maxCompany + Math.max(maxEmployee, 0) : null;
       const empAssigned = model.employees.filter(e => e.item === code).length;
+      const { day0: employeeProfitDay0, day5: employeeProfitDay5 } = workerProfitability(code, it, bb.total, lowWage);
 
       rows.push({ code, name: META[code].name, cat: META[code].cat, type: it.type,
                   netPP: npp, bonus: bb.total, region: bb.region, country: bb.country,
-                  tax: bb.tax, deposit: bb.deposit,
+                  tax: bb.tax, deposit: bb.depositInfo,
                   maxCompany, maxEmployee, totalMax, empAssigned, lowWage,
+                  employeeProfitDay0, employeeProfitDay5,
                   makesIt, actual: makesIt ? actual : null });
     }
-    rows.sort((a, b) => (b.netPP ?? -Infinity) - (a.netPP ?? -Infinity));
-    return rows;
+    return sortRows(rows);
   }
 
   function iconHtml(code) {
@@ -783,54 +930,82 @@ const DailyProfitTool = (() => {
     return `<div class="icon-box"><img src="images/${f}" alt="" onerror="this.parentElement.innerHTML='📦'"></div>`;
   }
 
+  // Column definitions for the sortable header row. `key` matches SORT_ACCESSORS;
+  // `l` marks left-aligned columns. `firstDir` is the direction the FIRST click
+  // applies (1 = ascending): text columns and "lowest wage" read naturally
+  // ascending, value columns default to biggest-first.
+  const TABLE_COLS = [
+    { key: 'name',        label: 'Product',        l: true, firstDir: 1 },
+    { key: 'bonus',       label: 'Bonus' },
+    { key: 'maxCompany',  label: 'Max company',    title: 'If 100% of your company AE went to this product, at its bonus' },
+    { key: 'maxEmployee', label: 'Max employee',   title: 'If 100% of your employees (incl. you) went to this product, minus wages' },
+    { key: 'totalMax',    label: 'Total max',      title: 'Max company + max employee' },
+    { key: 'empAssigned', label: 'Emp.',           title: 'Your employees currently producing this product' },
+    { key: 'actual',      label: 'Actual / day' },
+    { key: 'lowWage',     label: 'Lowest wage',    firstDir: 1, title: () => {
+      const rate = netWageRate();
+      if (rate == null) return 'Market wage data unavailable, so no benchmark could be computed';
+      const basis = model.wageOverride != null
+        ? 'your manual override'
+        : `the ${WAGE_RANK_FROM_TOP}th-best net wage on offer, ignoring unattainable postings and companies at capacity`;
+      return `Lowest wage to post so the worker nets ${fmt3(rate)} after this country's income tax — ${basis}`;
+    } },
+    { key: 'profitable',  label: 'Profitable worker', title: () =>
+      `Would hiring a reference worker (${Math.round(model.genericWorker.energy)} energy / ${Math.round(model.genericWorker.production)} production = ${fmtPP(model.genericWorker.basePP)} base PP) at the lowest wage pay for itself on this product? Green = yes from day 0. Yellow = not yet, but yes by day 5 once their fidelity bonus (free extra output, same wage) kicks in. Red = no, even at day 5. Assumes the product’s best-bonus country and its tax — the same basis as the Bonus, Lowest wage and Country columns — not your company’s current location.` },
+    { key: 'country',     label: 'Country · tax',  l: true, firstDir: 1, title: 'Country giving the best production bonus, and its income tax (Country › Account)' },
+    { key: 'deposit',     label: 'Deposit',        title: 'Temporary regional deposit driving the bonus, and when it expires' },
+  ];
+
   function renderTableAndIncome() {
     const rows = buildRows();
 
     $table.innerHTML = `
-      <thead><tr>
-        <th class="dp-l">Product</th>
-        <th class="dp-l">Type</th>
-        <th>Sale</th>
-        <th>Raw cost</th>
-        <th>Bonus</th>
-        <th>Net / PP</th>
-        <th title="If 100% of your company AE went to this product, at its bonus">Max company</th>
-        <th title="If 100% of your employees (incl. you) went to this product, minus wages">Max employee</th>
-        <th title="Max company + max employee">Total max</th>
-        <th title="Your employees currently producing this product">Emp.</th>
-        <th>Actual / day</th>
-        <th title="Lowest wage to post so the worker nets 0.121 after this country's income tax">Lowest wage</th>
-        <th class="dp-l" title="Country giving the best production bonus, and its income tax (Country › Account)">Country · tax</th>
-        <th title="Temporary regional deposit driving the bonus, and when it expires">Deposit</th>
-      </tr></thead>
+      <thead><tr>${TABLE_COLS.map(c => {
+        const active = sortState.key === c.key;
+        const arrow = active ? `<span class="dp-sort-arrow">${sortState.dir === 1 ? '▲' : '▼'}</span>` : '';
+        const aria = active ? (sortState.dir === 1 ? 'ascending' : 'descending') : 'none';
+        const title = typeof c.title === 'function' ? c.title() : c.title;
+        return `<th class="dp-sortable${c.l ? ' dp-l' : ''}" data-sort-key="${c.key}" aria-sort="${aria}"${title ? ` title="${escapeHtml(title)}"` : ''}>${c.label}${arrow}</th>`;
+      }).join('')}</tr></thead>
       <tbody>${rows.map(r => {
-        const sale = price(r.code);
-        const rc = rawCostOf(r.code);
         const regionTip = r.region ? `${escapeHtml(r.region.name)}${r.country ? ' · ' + escapeHtml(r.country.name) : ''}` : 'no bonus region';
         const money = (v) => v == null ? '<span class="dp-na">–</span>' : fmtK(v);
+        // Green from day 0, yellow if day-0 fails but the free fidelity bonus by
+        // day 5 tips it into profit, red if not even by day 5.
+        const profitState = r.employeeProfitDay0 == null ? null
+          : (r.employeeProfitDay0 > 0 ? 'good' : (r.employeeProfitDay5 > 0 ? 'warn' : 'bad'));
+        const wageClass = profitState == null ? '' : { good: 'dp-lowwage-good', warn: 'dp-lowwage-warn', bad: 'dp-lowwage-bad' }[profitState];
+        const profitCell = profitState == null ? '<span class="dp-na">–</span>'
+          : { good: '<span class="dp-profit-yes">✅</span>', warn: '<span class="dp-profit-warn" title="Not profitable day 0, but turns profitable by day 5 once fidelity kicks in">🟡</span>', bad: '<span class="dp-profit-no">❌</span>' }[profitState];
         return `<tr class="${r.makesIt ? 'dp-owned' : ''}">
-          <td class="dp-l"><span class="dp-prod">${iconHtml(r.code)}<span>${escapeHtml(r.name)}</span><span class="dp-cat">· ${r.cat}</span></span></td>
-          <td class="dp-l"><span class="dp-pill ${r.type}">${r.type === 'product' ? 'Finished' : 'Raw'}</span></td>
-          <td>${sale == null ? '<span class="dp-na">–</span>' : fmt3(sale)}</td>
-          <td>${rc == null ? '<span class="dp-na">–</span>' : (rc ? fmt3(rc) : '<span class="dp-muted">0</span>')}</td>
+          <td class="dp-l"><span class="dp-prod">${iconHtml(r.code)}<span>${escapeHtml(r.name)}</span><span class="dp-pill ${r.type}">${r.type === 'product' ? 'Finished' : 'Raw'}</span><span class="dp-cat">· ${r.cat}</span></span></td>
           <td class="dp-bonus" title="${regionTip}">${r.bonus ? '+' + fmt2(r.bonus) + '%' : '<span class="dp-muted">0%</span>'}</td>
-          <td class="dp-netpp ${r.netPP != null && r.netPP < 0 ? 'neg' : ''}">${r.netPP == null ? '<span class="dp-na">–</span>' : fmt3(r.netPP)}</td>
           <td>${money(r.maxCompany)}</td>
           <td>${money(r.maxEmployee)}</td>
           <td><strong>${money(r.totalMax)}</strong></td>
           <td>${r.empAssigned ? r.empAssigned : '<span class="dp-muted">0</span>'}</td>
           <td>${r.actual == null ? '<span class="dp-na">—</span>' : `<span class="dp-actual">${fmtK(r.actual)}</span>`}</td>
-          <td>${r.lowWage != null && isFinite(r.lowWage) ? fmt3(r.lowWage) : '<span class="dp-na">–</span>'}</td>
+          <td class="${wageClass}">${r.lowWage != null && isFinite(r.lowWage) ? fmt3(r.lowWage) : '<span class="dp-na">–</span>'}</td>
+          <td>${profitCell}</td>
           <td class="dp-l">${r.country ? `${escapeHtml(r.country.name)} <span class="dp-tax">· ${r.tax != null ? r.tax + '%' : '–'}</span>` : '<span class="dp-na">—</span>'}</td>
           <td>${r.deposit ? `<span class="dp-dep" title="Temporary deposit (+${r.deposit.bonus}% ${escapeHtml(META[r.deposit.type]?.name || r.deposit.type)}) — expires ${fmtDate(r.deposit.endsAt)}">⏳ ${fmtDate(r.deposit.endsAt)}</span>` : '<span class="dp-muted">—</span>'}</td>
         </tr>`;
       }).join('')}</tbody>
     `;
+    $table.querySelectorAll('th[data-sort-key]').forEach(th => th.addEventListener('click', () => {
+      const key = th.dataset.sortKey;
+      const col = TABLE_COLS.find(c => c.key === key);
+      sortState.dir = (sortState.key === key) ? -sortState.dir : (col?.firstDir ?? -1);
+      sortState.key = key;
+      renderTableAndIncome();
+    }));
 
     const priced = rows.filter(r => r.netPP != null).length;
     const missing = rows.filter(r => r.netPP == null).map(r => r.name);
-    const top = rows[0];
-    $tableNote.innerHTML = `Best Net/PP: <strong>${top && top.netPP != null ? top.name + ' (' + fmt3(top.netPP) + '/PP)' : '–'}</strong>. `
+    // Highest Net/PP overall — NOT rows[0], which follows the user's sort.
+    const top = rows.reduce((best, r) =>
+      (r.netPP != null && (best == null || r.netPP > best.netPP)) ? r : best, null);
+    $tableNote.innerHTML = `Best profit per production point: <strong>${top && top.netPP != null ? top.name + ' (' + fmt3(top.netPP) + '/PP)' : '–'}</strong>. `
       + `${priced}/${rows.length} products priced.` + (missing.length ? ` No market price for: <code>${missing.join('</code>, <code>')}</code>.` : '');
 
     model._companiesIncome = rows.reduce((s, r) => s + (r.actual || 0), 0);

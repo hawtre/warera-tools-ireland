@@ -905,3 +905,111 @@ function makeStatus(el) {
     el.classList.remove('hidden');
   };
 }
+
+/* ── Production-bonus model ─────────────────────────────────────────
+ *  Single source of truth for the four-component production bonus.
+ *  Previously copy-pasted into advisor.js, dashboard.js and
+ *  daily-profit.js; the fix in PR #9 had to be applied three times by
+ *  hand and missed daily-profit-dev.js entirely. Keep it here.
+ *
+ *  The component semantics and the asymmetric gating were verified
+ *  against many in-game tooltips — see the header comment in
+ *  js/advisor.js for the worked examples. Do not change without
+ *  re-verifying:
+ *
+ *    • Strategic + Specialisation fire on an eligible specialised item;
+ *      the modifier is +10 at Industrialism +1 or +30 at +2.
+ *    • Deposit fires whenever there's an active matching deposit, EXCEPT
+ *      when the country specialises in the item AND is industrialist.
+ *    • DepositCountry fires only for the four eligible deposit
+ *      resources; the modifier is +10 at Industrialism -1 or +30 at -2.
+ *
+ *  Keep the allowlists separate: industrial specialisation covers 12
+ *  goods, agrarian deposits only 4.
+ * ─────────────────────────────────────────────────────────────────── */
+const INDUSTRIALISM_SPECIALISATION_ITEMS = new Set([
+  'lightAmmo', 'ammo', 'heavyAmmo', 'concrete', 'steel', 'iron',
+  'limestone', 'petroleum', 'oil', 'lead', 'wood', 'paper',
+]);
+const AGRARIAN_DEPOSIT_ITEMS = new Set(['coca', 'grain', 'livestock', 'fish']);
+const SPECIALISATION_MODIFIER_BY_TIER = { 1: 10, 2: 30 };
+const DEPOSIT_MODIFIER_BY_TIER = { '-1': 10, '-2': 30 };
+const INDUSTRIALISM_LABEL_BY_TIER = {
+  1: 'Industrialist',
+  2: 'Fanatic Industrialist',
+  '-1': 'Agrarian',
+  '-2': 'Fanatic Agrarian',
+};
+
+function isDepositActive(dep) {
+  if (!dep) return false;
+  const now = Date.now();
+  const starts = dep.startsAt ? new Date(dep.startsAt).getTime() : 0;
+  const ends   = dep.endsAt   ? new Date(dep.endsAt).getTime()   : 0;
+  return now >= starts && now <= ends;
+}
+
+function industrialismTier(country) {
+  const tier = country?.industrialism;
+  return [-2, -1, 0, 1, 2].includes(tier) ? tier : 0;
+}
+
+/**
+ * Compute the production bonus for a (country, region, item) combination.
+ * Returns null if country is unknown.
+ *
+ * The result is the superset of what the callers need:
+ *   strategic / specialisation / deposit / depositCountry
+ *                   — the four components, as percentages (advisor's breakdown)
+ *   total, tax      — summed bonus % and the country's income tax %
+ *   netMult         — (1 + total%) × (1 − tax%), for take-home comparisons
+ *   tier, industrialismLabel
+ *                   — the country's Industrialism tier and its display name
+ *   region, country — echoed back, so callers can carry the winning pair
+ *   depositEndsAt   — expiry of the deposit driving the bonus, or null
+ *   depositInfo     — { bonus, endsAt, type } for flagging a temporary
+ *                     deposit in a table, or null. Note this is an OBJECT,
+ *                     unlike the numeric `deposit` component above.
+ */
+function computeProductionBonus(country, region, itemCode) {
+  if (!country) return null;
+
+  const isSpecialised = country.specializedItem === itemCode;
+  const tier          = industrialismTier(country);
+
+  // Fanatic Agrarian disables specialization benefits. Such countries
+  // cannot normally retain a specialization, but guard stale API data too.
+  const strategic = isSpecialised && tier !== -2
+    ? (country.strategicResources?.bonuses?.productionPercent || 0)
+    : 0;
+  const specialisation = isSpecialised
+    && INDUSTRIALISM_SPECIALISATION_ITEMS.has(itemCode)
+    ? (SPECIALISATION_MODIFIER_BY_TIER[tier] || 0) : 0;
+
+  const hasDeposit = !!region?.deposit
+    && region.deposit.type === itemCode
+    && isDepositActive(region.deposit)
+    && !(isSpecialised && tier > 0);
+  const deposit        = hasDeposit ? (region.deposit.bonusPercent || 0) : 0;
+  const depositCountry = hasDeposit && AGRARIAN_DEPOSIT_ITEMS.has(itemCode)
+    ? (DEPOSIT_MODIFIER_BY_TIER[tier] || 0) : 0;
+
+  const total   = strategic + specialisation + deposit + depositCountry;
+  const tax     = country.taxes?.income ?? 0;
+  const netMult = (1 + total / 100) * (1 - tax / 100);
+
+  // Surface whether the bonus leans on a temporary regional deposit (these
+  // expire — region.deposit has startsAt/endsAt), so tables can flag it.
+  const depositInfo = hasDeposit
+    ? { bonus: deposit + depositCountry, endsAt: region.deposit.endsAt, type: region.deposit.type }
+    : null;
+
+  return {
+    strategic, specialisation, deposit, depositCountry,
+    total, tax, netMult,
+    tier, industrialismLabel: INDUSTRIALISM_LABEL_BY_TIER[tier] || 'Industrialism',
+    region, country,
+    depositEndsAt: hasDeposit ? region.deposit.endsAt : null,
+    depositInfo,
+  };
+}
