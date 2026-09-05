@@ -232,8 +232,15 @@ const ToolkitShell = (() => {
    *  for them in batches. Same shape in, same shape out.
    */
   async function warmCountries(arr) {
-    await trpcMany('country.getCountryById',
+    const settled = await trpcMany('country.getCountryById',
       arr.filter(c => c?._id).map(c => ({ countryId: c._id })));
+    const countryById = {};
+    settled.forEach(result => {
+      if (result.status === 'fulfilled' && result.value?._id) {
+        countryById[result.value._id] = result.value;
+      }
+    });
+    await enrichCountriesWithIndustrialism(countryById);
   }
 
   function markReady() {
@@ -250,10 +257,12 @@ const ToolkitShell = (() => {
     const countriesP = trpc('country.getAllCountries', {}).catch(() => null);
     trpc('region.getRegionsObject', {}).catch(() => {});
     trpc('gameConfig.getGameConfig', {}).catch(() => {});
-    fetch(`${WARERASTATS_BASE}/countries`).catch(() => {});
     countriesP.then(list => {
       const arr = Array.isArray(list) ? list : (list?.items || []);
-      warmCountries(arr).then(markReady);
+      // Prefetch errors are surfaced when the selected tool performs its own
+      // load; consume them here so a background warm-up cannot create an
+      // unhandled rejection or leave the shell looking permanently busy.
+      warmCountries(arr).then(markReady, markReady);
     });
 
     // MU + Buddy Finder share the Irish citizen list; MU also needs the MU list.

@@ -147,7 +147,7 @@ const SkillPointAdvisorTool = (() => {
       user = await resolveUsername(rawUsername);
     } catch (e) {
       if (myGeneration !== lookupGeneration) return; // superseded by a newer lookup
-      showLookupStatus('error', `Couldn't reach the War Era Gateway. ${escapeHtml(e.message)}`);
+      showLookupStatus('error', `Couldn't reach the War Era API. ${escapeHtml(e.message)}`);
       return;
     }
     if (myGeneration !== lookupGeneration) return; // a newer lookup has since started

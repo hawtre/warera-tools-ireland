@@ -649,7 +649,7 @@
         <p>If a balanced pair drifts (one buddy grinds skills faster), the pair gets flagged as <strong>mismatched</strong> automatically, and both members become findable in match searches with an orange badge. You don't need to do anything. Just check back if you want a better match.</p>
 
         <h4>The data</h4>
-        <p>Live calls to the War Era Gateway via the <code>warera-proxy</code> Cloudflare Worker. No data stored about you, except the username + userId on the waiting list (if you opt in). Everything else is computed fresh each time.</p>
+        <p>Live calls to the War Era API via the <code>warera-proxy</code> Cloudflare Worker. No data stored about you, except the username + userId on the waiting list (if you opt in). Everything else is computed fresh each time.</p>
       </div>
     </details>
   </section>
@@ -700,7 +700,7 @@
       <summary>How this works</summary>
       <div class="howto-body">
         <ul>
-          <li><strong>Production bonus</strong> has up to four components. Strategic resources and regional deposits are country/region facts; the other components come from the country's exact <strong>Industrialism</strong> tier in the warerastats data feed. Industrialist (+1) grants +10% and Fanatic Industrialist (+2) grants +30% on an eligible specialised industrial good. Agrarian (−1) grants +10% and Fanatic Agrarian (−2) grants +30% on an eligible matching regional deposit. Neutral (0), missing, and unknown tiers grant neither modifier.
+          <li><strong>Production bonus</strong> has up to four components. Strategic resources and regional deposits are country/region facts; the other components come from the ruling party's exact <strong>Industrialism</strong> tier in the live game data. Industrialist (+1) grants +10% and Fanatic Industrialist (+2) grants +30% on an eligible specialised industrial good. Agrarian (−1) grants +10% and Fanatic Agrarian (−2) grants +30% on an eligible matching regional deposit. Neutral (0), missing, and unknown tiers grant neither modifier.
             <ul style="margin-top: 4px;">
               <li><strong>Strategic Resource Bonus:</strong> the country's <code>productionPercent</code>, applied when the item matches the country's <code>specializedItem</code>. Fanatic Agrarian disables specialisation benefits.</li>
               <li><strong>Industrialist specialisation:</strong> the tier-specific +10% or +30% modifier applies only to eligible specialised industrial goods.</li>
@@ -708,7 +708,7 @@
               <li><strong>Agrarian deposit:</strong> the tier-specific +10% or +30% modifier stacks with the base Deposit Bonus only for coca, grain, livestock, or fish.</li>
             </ul>
           </li>
-          <li><strong>Industrialism is read directly,</strong> not inferred. If warerastats is unreachable, the tool degrades gracefully: Industrialism defaults to 0 for all countries.</li>
+          <li><strong>Industrialism is read directly</strong> from each country's ruling party. If any party lookup fails, loading stops rather than presenting recommendations based on incomplete bonus data. A country with no ruling party is naturally neutral.</li>
           <li><strong>Income tax</strong> is deducted from <em>workers'</em> wages, not from the owner's share of production. So whether tax directly affects you depends on whether you actually work in the company.</li>
           <li><strong>You work here</strong> (badge shown on the card): ranking uses your take-home, <code>(1 + bonus%) × (1 − income tax%)</code>.</li>
           <li><strong>No badge:</strong> you own the company but don't work in it. Ranking uses raw output, <code>1 + bonus%</code>.</li>
@@ -995,7 +995,7 @@
         <p>Once you've loaded your roster, the URL updates to include your username (e.g. <code>#clockin?u=toie</code>). Bookmark it or share it — opening that link will reload the same view straight away.</p>
 
         <h4>For the curious: where the data comes from</h4>
-        <p>Under the hood, this calls a few endpoints on the War Era Gateway: <code>search.searchAnything</code> and <code>user.getUserLite</code> to find your account, <code>company.getCompanies</code> + <code>worker.getWorkers</code> for your roster, and <code>transaction.getPaginatedTransactions</code> (filtered to <code>wage</code>) for each worker's recent clock-ins. We also keep each worker's energy and production stats from the same <code>user.getUserLite</code> call (no extra requests) for the "if maxed" ceiling. Wage transactions are modelled as trades — the worker sells their labour (<code>sellerId</code>), you buy it (<code>buyerId</code>) — so we keep only the ones where the worker is the seller, AND you're the buyer, to filter out their own outgoing payroll and any work they did for other employers. The whole thing runs in your browser. Nothing is stored.</p>
+        <p>Under the hood, this calls a few endpoints on the War Era API: <code>search.searchAnything</code> and <code>user.getUserLite</code> to find your account, <code>company.getCompanies</code> + <code>worker.getWorkers</code> for your roster, and <code>transaction.getPaginatedTransactions</code> (filtered to <code>wage</code>) for each worker's recent clock-ins. We also keep each worker's energy and production stats from the same <code>user.getUserLite</code> call (no extra requests) for the "if maxed" ceiling. Wage transactions are modelled as trades — the worker sells their labour (<code>sellerId</code>), you buy it (<code>buyerId</code>) — so we keep only the ones where the worker is the seller, AND you're the buyer, to filter out their own outgoing payroll and any work they did for other employers. The whole thing runs in your browser. Nothing is stored.</p>
       </div>
     </details>
   </section>
@@ -1203,7 +1203,7 @@
               valued at the profit per item. ✅ pays from day one, 🟡 only once fidelity has grown for five days
               (fidelity lifts output but not the wage, so it's free), ❌ neither. It assumes the product's best-bonus
               country, like the columns beside it — not your company's current location.</li>
-          <li>Prices come live from the market (lowest sell offer). The <a href="https://warerastats.io/" target="_blank" rel="noopener">warerastats</a> average is only a fallback for any item whose order book is empty.</li>
+          <li>Prices come live from the market (lowest sell offer). The game's calculated price is used only when an item's order book is empty.</li>
           <li>Irish-citizens only (<code>?bypass=1</code> lifts it).</li>
         </ul>
       </div>
@@ -1626,19 +1626,19 @@ Please transfer: ₿X</pre>
 </main>
 
 <footer id="site-footer">
-  Made with <span class="heart">♥️</span> by <span id="footer-author">toie</span>. <span class="sep">·</span> Live data via <a href="https://gateway.warerastats.io/" target="_blank" rel="noopener">War Era Gateway</a>.
+  Made with <span class="heart">♥️</span> by <span id="footer-author">toie</span>. <span class="sep">·</span> Live data via the <a href="https://api2.warera.io/docs/" target="_blank" rel="noopener">War Era API</a>.
 </footer>
 
 <!-- Load order matters: shared first, tools next, router last. -->
-<script src="js/shared.js?v=20260905b"></script>
+<script src="js/shared.js?v=20260905c"></script>
 <script src="js/mu.js?v=20260905b"></script>
-<script src="js/buddy-finder.js?v=20260905b"></script>
-<script src="js/advisor.js?v=20260905b"></script>
+<script src="js/buddy-finder.js?v=20260905c"></script>
+<script src="js/advisor.js?v=20260905c"></script>
 <script src="js/clockin.js?v=20260905b"></script>
 <script src="js/wealth.js?v=20260905b"></script>
-<script src="js/daily-profit.js?v=20260905b"></script>
-<script src="js/daily-profit-dev.js?v=20260905b"></script>
-<script src="js/dashboard.js?v=20260905b"></script>
+<script src="js/daily-profit.js?v=20260905c"></script>
+<script src="js/daily-profit-dev.js?v=20260905c"></script>
+<script src="js/dashboard.js?v=20260905c"></script>
 <script src="js/donation-draw.js?v=20260905b"></script>
 <script src="js/irish-tax.js?v=20260905b"></script>
 <script src="js/irish-tax-dev.js?v=20260905b"></script>
@@ -1648,12 +1648,12 @@ Please transfer: ₿X</pre>
 <script src="js/buddy.js?v=20260905b"></script>
 <script src="js/battle-orders.js?v=20260905b"></script>
 <script src="js/beer.js?v=20260905b"></script>
-<script src="js/roster.js?v=20260905b"></script>
+<script src="js/roster.js?v=20260905c"></script>
 <script src="js/no-resets-table.js?v=20260905b"></script>
 <script src="js/sp-advisor-core.js?v=20260905b"></script>
-<script src="js/sp-advisor.js?v=20260905b"></script>
+<script src="js/sp-advisor.js?v=20260905c"></script>
 <script src="js/softcap.js?v=20260905b"></script>
-<script src="js/toolkit.js?v=20260905b"></script>
+<script src="js/toolkit.js?v=20260905c"></script>
 <script src="js/router.js?v=20260905b"></script>
 </body>
 </html>

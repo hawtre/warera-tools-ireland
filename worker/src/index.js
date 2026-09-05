@@ -7,14 +7,12 @@
  *  not send. Routes:
  *
  *    /trpc/*             -> https://api2.warera.io/trpc/*   (+ x-api-key)
- *    /warerastats/*      -> https://api.warerastats.io/*    (no token)
  *    /waitlist-update    -> GitHub repository_dispatch: waitlist-update
  *    /deal-config-submit -> GitHub repository_dispatch: deal-config-submit
  *    /notify-discord     -> Discord webhook
  */
 
 const GAME_API        = 'https://api2.warera.io/trpc';
-const WARERASTATS_API = 'https://api.warerastats.io';
 
 // The game API 403s on an empty User-Agent, and the client's own UA is
 // not forwarded (it identifies the player's browser, not this service).
@@ -285,9 +283,6 @@ export default {
       const keys = apiKeys(env);
       if (!keys.length) return json({ error: 'game API token not configured' }, 503, origin);
       return proxy(request, env, origin, GAME_API, '/trpc', keys);
-    }
-    if (url.pathname.startsWith('/warerastats/')) {
-      return proxy(request, env, origin, WARERASTATS_API, '/warerastats');
     }
     if (url.pathname === '/waitlist-update') {
       return dispatch(request, env, origin, 'waitlist-update');

@@ -98,12 +98,11 @@ Tools never touch each other. They share state only through the URL and through 
 
 ```js
 API_BASE         = 'https://warera-proxy.0x5ca1ab1e.workers.dev/trpc'
-WARERASTATS_BASE = 'https://warera-proxy.0x5ca1ab1e.workers.dev/warerastats'
 GAME_BASE        = 'https://app.warera.io'
 IRELAND_COUNTRY_ID = '6813b6d446e731854c7ac7fe'
 ```
 
-**`trpc(endpoint, inputOrInputs, { batch, retry, timeoutMs, fresh })`** is the only way to call the game API. It builds the proxied URL, unwraps the tRPC response shape, and optionally retries transient errors. With `batch: true`, pass an array of inputs for the same endpoint; the result uses `Promise.allSettled`'s shape. `fresh: true` bypasses the resolved-value cache. Always use `trpc` rather than calling `fetch` against the gateway directly.
+**`trpc(endpoint, inputOrInputs, { batch, retry, timeoutMs, fresh })`** is the only way to call the game API. It builds the proxied URL, unwraps the tRPC response shape, and optionally retries transient errors. With `batch: true`, pass an array of inputs for the same endpoint; the result uses `Promise.allSettled`'s shape. `fresh: true` bypasses the resolved-value cache. Always use `trpc` rather than calling `fetch` against the live API directly.
 
 **`trpcMany(endpoint, inputs, { urlBudget, maxChunk, concurrency, retry, timeoutMs, fresh, onProgress })`** is the bulk form, and the one to reach for whenever a tool needs the same procedure for a list of IDs. It packs `inputs` into batches by URL size, sends four batches at a time, and resolves to one flat `Promise.allSettled`-shaped array in input order. Failure is per item, so a bad chunk can't sink the sweep, and `onProgress(done, total)` drives the step counters. Retryable failures are re-sent as a batch of *just the failures*, so one bad item in a chunk of 100 costs one small repair request rather than re-pulling all 100. **`trpcManyValues(endpoint, inputs, { fallback, ... })`** is the same thing unwrapped to plain values, with `fallback` (default `null`) in place of anything that failed — that's the one most call sites want.
 
@@ -166,11 +165,11 @@ Capacity is `dormitories * 5`. MUs with no dormitory data have unknown capacity 
 
 For each of a user's companies, works out whether a different country or region would produce more, and by how much.
 
-This is the most intricate tool in the project. The production bonus is computed locally from four components: the Strategic Resource Bonus, an Industrialist specialisation modifier, the active region's Deposit Bonus, and an Agrarian deposit modifier. Industrialism is an exact tier from warerastats: +1/+2 grant +10%/+30% on one of 12 eligible specialised industrial goods, while −1/−2 grant +10%/+30% on matching deposits of coca, grain, livestock, or fish. Neutral, missing, and unknown tiers contribute no Party Ethics modifier.
+This is the most intricate tool in the project. The production bonus is computed locally from four components: the Strategic Resource Bonus, an Industrialist specialisation modifier, the active region's Deposit Bonus, and an Agrarian deposit modifier. Industrialism is read from each country's ruling party in the live game API: +1/+2 grant +10%/+30% on one of 12 eligible specialised industrial goods, while −1/−2 grant +10%/+30% on matching deposits of coca, grain, livestock, or fish. Neutral, missing, and unknown tiers contribute no Party Ethics modifier.
 
 The whole model was reverse-engineered and verified against game-owned calculations. The file header lists verified cases and an explicit "bugs to NOT repeat" list. Do not change the bonus logic without re-verifying live. Keep the two explicit item allowlists separate, and do not reuse `gameConfig.company.depositResourceBonus` as a Party Ethics modifier.
 
-Income tax only affects the ranking on companies the user actually works in. If they just own it, raw output is ranked instead. If warerastats is unreachable, Industrialism defaults to 0 and the tier-specific modifiers simply do not fire, which under-counts rather than mis-counts.
+Income tax only affects the ranking on companies the user actually works in. If they just own it, raw output is ranked instead. Any failed ruling-party lookup stops the load so the tool never presents recommendations based on incomplete Industrialism data. A country with no ruling party is naturally neutral.
 
 ### Employee Clock-In Monitor (`clockin.js`)
 
@@ -240,8 +239,7 @@ A searchable, timezone-aware log of region bunker activity for the BEER alliance
 
 All game data comes through one Cloudflare Worker at `warera-proxy.0x5ca1ab1e.workers.dev`. Its source lives in `worker/` — see `worker/README.md` for deploying it. It exposes these routes:
 
-- `/trpc/*` proxies the War Era Gateway (tRPC) at `api2.warera.io`, injecting the game API token.
-- `/warerastats/*` proxies Hattorius's warerastats data (used for country industrialism in the advisor).
+- `/trpc/*` proxies the live War Era tRPC API at `api2.warera.io`, injecting the game API token.
 - `/waitlist-update` mutates the Buddy Finder waiting list (see below).
 - `/deal-config-submit` creates a tax deal from the Tax Deals dashboard.
 - `/notify-discord` forwards a message to the Battle Orders Discord webhook (held as a Worker secret).
@@ -263,7 +261,7 @@ mu.getManyPaginated
 region.getRegionsObject
 country.getCountryById, country.getAllCountries
 gameConfig.getGameConfig
-warerastats /countries  (industrialism, via WARERASTATS_BASE)
+party.getById, itemTrading.getPrices
 ```
 
 ## Access control
@@ -313,4 +311,4 @@ The process is build-standalone, then merge, and design must survive the merge.
 
 ## Credit
 
-By toie. Live data via the [War Era Gateway](https://gateway.warerastats.io/). Industrialism data from [warerastats.io](https://warerastats.io/).
+By toie. Live data via the [War Era API](https://api2.warera.io/docs/).

@@ -18,7 +18,7 @@
  *
  *  Waitlist storage:
  *    waitlist.json hosted on GitHub, mutated via repository_dispatch
- *    through the same warera-proxy Worker that fronts the gateway.
+ *    through the same warera-proxy Worker that fronts the live game API.
  *    The PAT lives server-side; client never sees it.
  *
  *  Access: restricted to Irish citizens via enforceIrishOnly from
@@ -714,7 +714,7 @@ const BuddyFinderTool = (() => {
     try {
       user = await resolveUsername(raw);
     } catch (e) {
-      showStatus($wlStatus, 'error', `Couldn't reach the War Era Gateway. ${escapeHtml(e.message)}`);
+      showStatus($wlStatus, 'error', `Couldn't reach the War Era API. ${escapeHtml(e.message)}`);
       $wlBtn.disabled = false;
       return;
     }

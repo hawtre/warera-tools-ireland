@@ -10,16 +10,15 @@ headers the upstream APIs don't send.
 | Path | Upstream | Token |
 |------|----------|-------|
 | `/trpc/*` | `https://api2.warera.io/trpc/*` | injects `x-api-key` from the key pool |
-| `/warerastats/*` | `https://api.warerastats.io/*` | none needed |
 | `/waitlist-update` | GitHub `repository_dispatch` → `waitlist-update` | `$GITHUB_DISPATCH_TOKEN` |
 | `/deal-config-submit` | GitHub `repository_dispatch` → `deal-config-submit` | `$GITHUB_DISPATCH_TOKEN` |
 | `/notify-discord` | `$DISCORD_WEBHOOK_URL` | webhook URL is the secret |
 | `/healthz` | - | reports pool size and how many keys are cooling |
 
-`/trpc` and `/warerastats` are transparent proxies: method, path, query and body
-go upstream unchanged, and the upstream status and body come back unchanged.
+`/trpc` is a transparent proxy: method, path, query and body go upstream
+unchanged, and the upstream status and body come back unchanged.
 `shared.js` reads tRPC's own error envelope and keys its retry
-logic off the HTTP status, so rewriting either would break it.
+logic off the HTTP status, so rewriting it would break it.
 
 The client's `Authorization`, `x-api-key` and `Cookie` headers are stripped
 before forwarding, so a caller can't smuggle their own credentials upstream
@@ -111,10 +110,8 @@ NEW="https://your-new-worker.workers.dev"
 grep -rl "$OLD" --include='*.js' --include='*.py' . | xargs sed -i "s|$OLD|$NEW|g"
 ```
 
-That covers `js/shared.js` (`API_BASE`, `WARERASTATS_BASE`), the per-tool
-fallbacks in `advisor.js`, `dashboard.js`, `daily-profit.js`,
-`daily-profit-dev.js`, `tax-deal-dashboard.js`, `buddy-finder.js`, and the four
-log scripts (`wealth_log.py`, `bunker_log.py`, `tax_log.py`, `tax_engine.py`).
+That covers `js/shared.js` (`API_BASE`) and the four log scripts
+(`wealth_log.py`, `bunker_log.py`, `tax_log.py`, `tax_engine.py`).
 
 ## Local development
 

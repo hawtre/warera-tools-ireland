@@ -10,7 +10,7 @@
  *  so adding another country later is a CONFIG change, not a rewrite —
  *  see the COUNTRIES map below.
  *
- *  Data sources (all via the gateway your trpc() helper points at):
+ *  Data sources (all via the live game API your trpc() helper points at):
  *    - user.getUsersByCountry (paginated) → list of citizens (_id, username, mu)
  *    - user.getUserById       (per citizen) → FULL profile: skills, dates, buffs
  *    - mu.getById             (per unique MU) → MU names
@@ -672,9 +672,8 @@ const RosterTool = (() => {
 
   // Hydrate each citizen with the FULL profile (getUserById), sent as tRPC
   // batches so a few hundred citizens cost a handful of requests instead of
-  // one each. The gateway also caches these (~5 min), so repeated loads in a
-  // short window mostly don't hit the game API at all. A citizen whose full
-  // profile fails keeps the listing row we already have.
+  // one each. A citizen whose full profile fails keeps the listing row we
+  // already have.
   async function fetchFullProfiles(citizens) {
     const fulls = await trpcManyValues('user.getUserById',
       citizens.map(c => ({ userId: c._id })));

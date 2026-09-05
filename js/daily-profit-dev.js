@@ -7,11 +7,6 @@
  *  DailyProfitDevTool.activate({u}).
  * ═══════════════════════════════════════════════════════════════════ */
 const DailyProfitDevTool = (() => {
-  const WS_BASE = WARERASTATS_BASE;   // shared.js; localhost points it at `wrangler dev`
-  // Prices via the proxy (it adds CORS) — a direct api.warerastats.io fetch
-  // is blocked cross-origin in the browser, even though /countries via the
-  // proxy works.
-  const ITEMS_URL = `${WS_BASE}/items`;
   // Works/day per energy point: 10%/hr recovery × 24h ÷ 10 energy-per-work = 0.24.
   // Verified against the sheet: Pintman 31×100×0.24×1.10(fid) = 818.4 PP/day.
   const WORK_FACTOR = 0.24;
@@ -119,12 +114,6 @@ const DailyProfitDevTool = (() => {
   function showStatus(level, html) { $status.className = `bf-inline-status ${level}`; $status.innerHTML = html; $status.classList.remove('hidden'); }
   function hideStatus() { $status.classList.add('hidden'); $status.innerHTML = ''; }
 
-  async function fetchJsonUrl(url) {
-    const res = await fetch(url, { cache: 'no-cache' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }
-
   async function resolveUsername(username) {
     const needle = username.trim().toLowerCase();
     if (!needle) return null;
@@ -143,7 +132,7 @@ const DailyProfitDevTool = (() => {
   }
 
   // Representative price from an order book: midpoint of best bid/ask
-  // (falls back to whichever side exists). Matches the warerastats avg well.
+  // (falls back to whichever side exists).
   function orderMid(d) {
     const bo = d?.buyOrders || [], so = d?.sellOrders || [];
     let bid = -Infinity, ask = Infinity;
@@ -275,21 +264,16 @@ const DailyProfitDevTool = (() => {
 
       // Step 3: market + bonuses
       steps.setStep(3, 'active', { sub: 'Loading market, regions & countries' });
-      const [itemsArr, gameConfig, regionsObj, allCountriesRaw, wsCountries] = await Promise.all([
-        fetchJsonUrl(ITEMS_URL).catch(() => []),
+      const [fallbackPrices, gameConfig, regionsObj, allCountriesRaw] = await Promise.all([
+        dp_trpc('itemTrading.getPrices', {}).catch(() => ({})),
         dp_trpc('gameConfig.getGameConfig', {}).catch(() => null),
         dp_trpc('region.getRegionsObject', {}),
         dp_trpc('country.getAllCountries', {}),
-        fetch(`${WS_BASE}/countries`).then(r => r.json()).catch(() => []),
       ]);
       const gameItems = gameConfig?.items || {};
-      // Pricing. The warerastats `avg` is a trailing average that lags the
-      // market when a price moves (e.g. livestock/coca read low). So price from
-      // the live order book — the LOWEST OFFER (best ask), i.e. the "buy it now"
-      // value the game shows — falling back to the book midpoint, then to the
-      // feed average only when an item's book is empty/thin.
-      const avgPrices = {};
-      (Array.isArray(itemsArr) ? itemsArr : []).forEach(it => { if (it?.itemCode != null && typeof it.avg === 'number') avgPrices[it.itemCode] = it.avg; });
+      // Price from the live order book — the LOWEST OFFER (best ask), i.e. the
+      // "buy it now" value the game shows — falling back to the book midpoint,
+      // then to the live game's calculated price when a book is empty/thin.
       const prices = {};
       const priceCodes = Object.keys(META).filter(c => gameItems[c]);
       steps.setStep(3, 'active', { sub: 'Pricing items from the live market', count: `0/${priceCodes.length}` });
@@ -300,7 +284,7 @@ const DailyProfitDevTool = (() => {
         } });
       books.forEach((ob, index) => {
         const code = priceCodes[index];
-        const p = orderLowestOffer(ob) ?? orderMid(ob) ?? avgPrices[code];
+        const p = orderLowestOffer(ob) ?? orderMid(ob) ?? fallbackPrices?.[code];
         if (p != null) prices[code] = p;
       });
       const aeLevels = gameConfig?.upgradesConfig?.automatedEngine?.levels || {};
@@ -332,9 +316,7 @@ const DailyProfitDevTool = (() => {
       fullCountries.forEach((full, index) => {
         if (full) countryById[allCountries[index]._id] = full;
       });
-      (Array.isArray(wsCountries) ? wsCountries : []).forEach(c => {
-        if (c && c.countryId != null && c.industrialism != null && countryById[c.countryId]) countryById[c.countryId].industrialism = c.industrialism;
-      });
+      await enrichCountriesWithIndustrialism(countryById);
       steps.setStep(3, 'done', { count: `${Object.keys(countryById).length} countries` });
       steps.fadeOut(300);
 

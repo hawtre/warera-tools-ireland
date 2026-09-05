@@ -49,7 +49,6 @@ const WORKER_BASE = (() => {
 })();
 
 const API_BASE         = `${WORKER_BASE}/trpc`;
-const WARERASTATS_BASE = `${WORKER_BASE}/warerastats`;
 const GAME_BASE        = 'https://app.warera.io';
 
 // Canonical Ireland country ID. Shared by the MU tool's citizenship
@@ -789,6 +788,50 @@ async function trpcMany(endpoint, inputs, {
 async function trpcManyValues(endpoint, inputs, { fallback = null, ...options } = {}) {
   const settled = await trpcMany(endpoint, inputs, options);
   return settled.map(result => result.status === 'fulfilled' ? result.value : fallback);
+}
+
+/**
+ * Enrich full country records with the ruling parties' live Industrialism
+ * tiers. country.getCountryById exposes only a rulingParty ID, so resolve the
+ * distinct parties in batches and copy ethics.industrialism onto each country
+ * where the production-bonus model expects it.
+ *
+ * A country with no ruling party remains neutral. Any attempted party lookup
+ * failure rejects the whole enrichment so callers cannot present incomplete
+ * production recommendations as authoritative. Clear any old value first
+ * because country objects may have come from the shared cache.
+ *
+ * @param {Object<string, Object>} countryById Full country records keyed by ID.
+ * @returns {Promise<Object<string, Object>>} The same enriched mapping.
+ */
+async function enrichCountriesWithIndustrialism(countryById) {
+  const countries = Object.values(countryById || {}).filter(Boolean);
+  const partyIdFor = country => {
+    const party = country?.rulingParty;
+    if (typeof party === 'string') return party;
+    return typeof party?._id === 'string' ? party._id : null;
+  };
+
+  countries.forEach(country => { delete country.industrialism; });
+  const partyIds = [...new Set(countries.map(partyIdFor).filter(Boolean))];
+  const settled = await trpcMany('party.getById',
+    partyIds.map(partyId => ({ partyId })));
+  const failures = settled.filter(result => result.status === 'rejected');
+  if (failures.length) {
+    const detail = failures[0].reason?.message;
+    throw new Error(`Couldn't load ruling-party ethics for ${failures.length} of ${partyIds.length} parties${detail ? `: ${detail}` : ''}`);
+  }
+  const parties = settled.map(result => result.value);
+  const tierByPartyId = new Map();
+  parties.forEach((party, index) => {
+    const tier = party?.ethics?.industrialism;
+    if ([-2, -1, 0, 1, 2].includes(tier)) tierByPartyId.set(partyIds[index], tier);
+  });
+  countries.forEach(country => {
+    const tier = tierByPartyId.get(partyIdFor(country));
+    if (tier !== undefined) country.industrialism = tier;
+  });
+  return countryById;
 }
 
 /*

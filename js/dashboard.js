@@ -35,8 +35,6 @@
  *  honouring ?bypass=1.
  * ═══════════════════════════════════════════════════════════════════ */
 const DashboardTool = (() => {
-  const WS_BASE   = WARERASTATS_BASE;   // shared.js; localhost points it at `wrangler dev`
-  const ITEMS_URL = `${WS_BASE}/items`;
   const WORK_FACTOR = 0.24;            // works/day per energy point (see daily-profit.js)
   const ACTIVE_MS = 24 * 3600 * 1000;  // < this since last clock-in → Active
   const WINDOW_MS = 48 * 3600 * 1000;  // < this → Slowing; older/never → Idle
@@ -575,13 +573,12 @@ const DashboardTool = (() => {
       }
 
       const workersData = await workersP;
-      const [allCompaniesRaw, itemsArr, gameConfig, regionsObj, allCountriesRaw, wsCountries, salaryInfo] = await Promise.all([
+      const [allCompaniesRaw, fallbackPrices, gameConfig, regionsObj, allCountriesRaw, salaryInfo] = await Promise.all([
         trpcManyValues('company.getById', companyIds.map(companyId => ({ companyId }))),
-        fetchJsonUrl(ITEMS_URL).catch(() => []),
+        db_trpc('itemTrading.getPrices', {}).catch(() => ({})),
         db_trpc('gameConfig.getGameConfig', {}).catch(() => null),
         db_trpc('region.getRegionsObject', {}),
         db_trpc('country.getAllCountries', {}),
-        fetch(`${WS_BASE}/countries`).then(r => r.json()).catch(() => []),
         dailySalary(full._id),
       ]);
       const companies = allCompaniesRaw.filter(c => c && !c.disabledAt);
@@ -600,15 +597,13 @@ const DashboardTool = (() => {
         const needs = gameItems[code]?.productionNeeds || {};
         for (const k in needs) needed.add(k);
       }
-      const avgPrices = {};
-      (Array.isArray(itemsArr) ? itemsArr : []).forEach(it => { if (it?.itemCode != null && typeof it.avg === 'number') avgPrices[it.itemCode] = it.avg; });
       const prices = {};
       const priceCodes = [...needed];
       const books = await trpcManyValues('tradingOrder.getTopOrders',
         priceCodes.map(itemCode => ({ itemCode })));
       books.forEach((ob, index) => {
         const code = priceCodes[index];
-        const p = orderLowestOffer(ob) ?? orderMid(ob) ?? avgPrices[code];
+        const p = orderLowestOffer(ob) ?? orderMid(ob) ?? fallbackPrices?.[code];
         if (p != null) prices[code] = p;
       });
 
@@ -619,9 +614,7 @@ const DashboardTool = (() => {
       fullCountries.forEach((fc, index) => {
         if (fc) countryById[allCountries[index]._id] = fc;
       });
-      (Array.isArray(wsCountries) ? wsCountries : []).forEach(c => {
-        if (c && c.countryId != null && c.industrialism != null && countryById[c.countryId]) countryById[c.countryId].industrialism = c.industrialism;
-      });
+      await enrichCountriesWithIndustrialism(countryById);
 
       const netPerPP = (code, bonusPct) => {
         const it = gameItems[code]; const pp = it?.productionPoints || 0;

@@ -26,7 +26,7 @@
  *                      +10% at -1 or +30% at -2, on matching active deposits
  *                      of coca, grain, livestock, or fish only
  *
- *  Industrialism is a signed tier from the warerastats companion endpoint.
+ *  Industrialism is a signed tier from the ruling party's live game record.
  *  Both sign and magnitude matter. Neutral, missing, or unknown tiers grant
  *  neither modifier, preserving the tool's conservative fallback.
  *
@@ -85,10 +85,6 @@ const AdvisorTool = (() => {
   // Industrialism config and checked against its production-bonus API.
   // The bonus tables and computeProductionBonus live in shared.js — this
   // header documents the model they implement.
-
-  // Companion endpoint for industrialism. Lives on Hattorius's
-  // warerastats.io, proxied through the same worker that fronts the
-  // gateway - WARERASTATS_BASE comes from shared.js.
 
   const $grid     = document.getElementById('adv-grid');
   const $hint     = document.getElementById('adv-hint');
@@ -257,35 +253,25 @@ const AdvisorTool = (() => {
     const companies = settled.map(result => result.value);
     steps.setStep(2, 'done', { count: `${companies.filter(Boolean).length} loaded` });
 
-    // Regions + country list + warerastats companion endpoint
-    // (for industrialism) all in parallel. Companion endpoint fails open:
-    // empty array → industrialism defaults to 0 → no Party Ethics
-    // modifiers fire, but everything else still works.
+    // Regions and the country list load in parallel. Industrialism is then
+    // resolved from each country's ruling party through the live game API.
+    // A failed party lookup stops the load rather than silently producing
+    // recommendations from incomplete bonus data.
     steps.setStep(3, 'active', { sub: 'Loading regions, countries, and party ethics' });
-    const [regionsObj, allCountriesRaw, warerastatsCountries] = await Promise.all([
+    const [regionsObj, allCountriesRaw] = await Promise.all([
       adv_trpc('region.getRegionsObject', {}),
       adv_trpc('country.getAllCountries', {}),
-      fetch(`${WARERASTATS_BASE}/countries`).then(r => r.json()).catch(() => []),
     ]);
     const allCountries = Array.isArray(allCountriesRaw)
       ? allCountriesRaw
       : (allCountriesRaw?.items || []);
-
-    const industrialismById = {};
-    (Array.isArray(warerastatsCountries) ? warerastatsCountries : []).forEach(c => {
-      if (c && c.countryId != null && c.industrialism != null) {
-        industrialismById[c.countryId] = c.industrialism;
-      }
-    });
 
     steps.setStep(3, 'active', {
       sub: `Loading bonuses for ${allCountries.length} countries`,
       count: `0/${allCountries.length}`
     });
     const countryById = await loadCountriesParallel(allCountries);
-    Object.values(countryById).forEach(c => {
-      if (c && c._id in industrialismById) c.industrialism = industrialismById[c._id];
-    });
+    await enrichCountriesWithIndustrialism(countryById);
     steps.setStep(3, 'done', { count: `${allCountries.length} loaded` });
 
     const regionsByCountry = {};
