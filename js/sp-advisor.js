@@ -186,6 +186,7 @@ const SkillPointAdvisorTool = (() => {
     }
 
     lastResolvedUsername = user.username;
+    rememberLoadedAccount(user.username);
     $level.value = level;
     $companies.value = Math.max(2, numCompanies); // 2 is the game's free floor
     $workers.value = numWorkers;

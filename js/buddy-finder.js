@@ -540,6 +540,7 @@ const BuddyFinderTool = (() => {
       html += renderMatchList(closeMatches, otherMatches, 8);
       $mResults.innerHTML = html;
       wireUpInteractiveControls();
+      rememberLoadedAccount(me.username);
     } catch (e) {
       // Step 1 throws already mark the active step as errored; later
       // failures get marked here. The status pane shows the message

@@ -803,6 +803,7 @@ const DashboardTool = (() => {
       try { history.replaceState(null, '', `#dashboard?u=${encodeURIComponent(full.username)}`); } catch {}
       rememberUsername(full.username);   // verified canonical name → recent chips
       renderScaffold(full.username);
+      rememberLoadedAccount(full.username);
 
       const companiesP = db_trpc('company.getCompanies', { userId: full._id, perPage: 100 }).catch(() => null);
       const workersP   = db_trpc('worker.getWorkers',    { userId: full._id }).catch(() => null);

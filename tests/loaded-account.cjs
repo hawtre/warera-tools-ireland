@@ -1,0 +1,18 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync('js/shared.js', 'utf8').split('// Shared account preference,')[1];
+const stored = new Map();
+const context = {localStorage: {getItem: k => stored.get(k), setItem: (k,v) => stored.set(k,v)}};
+vm.createContext(context);
+vm.runInContext('// Shared account preference,' + source, context);
+assert.equal(context.readLoadedAccount(), '');
+context.rememberLoadedAccount(' Alice ');
+context.rememberLoadedAccount('');
+assert.equal(context.readLoadedAccount(), 'Alice');
+context.rememberLoadedAccount('Bob');
+assert.equal(context.readLoadedAccount(), 'Bob');
+context.localStorage = {getItem() {throw Error('blocked');}, setItem() {throw Error('blocked');}};
+assert.doesNotThrow(() => context.rememberLoadedAccount('Carol'));
+assert.equal(context.readLoadedAccount(), '');
+console.log('Saved account updates, ignores empty names, and tolerates blocked storage.');

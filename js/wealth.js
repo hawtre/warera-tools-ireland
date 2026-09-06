@@ -180,6 +180,7 @@ const WealthMonitorTool = (() => {
       current = { user, wealth: live.wealth, avatarUrl: live.avatarUrl };
       chart.user = user._id;
       renderResults();
+      rememberLoadedAccount(user.username);
     } catch (e) {
       steps.markActiveAsError(e.message);
       showStatus('error', escapeHtml(e.message));

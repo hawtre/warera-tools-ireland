@@ -499,6 +499,7 @@ const DailyProfitTool = (() => {
                 totalCompanyAE: companies.reduce(                                                           (s, c) => s + (c._dailyAE || 0), 0),  // raw AE (Max Company)
                 assumptions: { enginesPP, staffPP } };   // editable; throughput = sum
       renderAll();
+      rememberLoadedAccount(user.username);
     } catch (e) {
       steps.markActiveAsError(e.message);
       showStatus('error', escapeHtml(e.message));

@@ -1056,3 +1056,13 @@ function computeProductionBonus(country, region, itemCode) {
     depositInfo,
   };
 }
+
+// Shared account preference, saved only after a tool successfully loads it.
+function rememberLoadedAccount(username) {
+  if (typeof username !== 'string' || !username.trim()) return;
+  try { localStorage.setItem('warera:last-loaded-account', username.trim()); } catch {}
+}
+function readLoadedAccount() {
+  try { return (localStorage.getItem('warera:last-loaded-account') || '').trim(); }
+  catch { return ''; }
+}

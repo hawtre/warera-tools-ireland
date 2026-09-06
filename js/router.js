@@ -82,8 +82,8 @@
     'tax-deals': TaxDealDashboardTool,
   };
 
-  function parseRoute() {
-    const raw = location.hash.replace(/^#/, '');
+  function parseRoute(hash = location.hash) {
+    const raw = hash.replace(/^#/, '');
     const qIdx = raw.indexOf('?');
     const view = (qIdx >= 0 ? raw.slice(0, qIdx) : raw) || DEFAULT_VIEW;
     const queryStr = qIdx >= 0 ? raw.slice(qIdx + 1) : '';
@@ -126,11 +126,45 @@
     }
   }
 
-  window.addEventListener('hashchange', () => {
+  // Account selection travels through URLs, so the two landing views do not
+  // need to read each other's private state. Read oldURL because tools can
+  // update their username with replaceState without firing hashchange.
+  const ACCOUNT_VIEWS = new Set(['dashboard', 'home']);
+  let selectedUsername = readLoadedAccount();
+  let resettingAccount = false;
+  const $brand = document.querySelector('.brand');
+  if ($brand) $brand.addEventListener('click', () => {
+    selectedUsername = '';
+    resettingAccount = true;
+  });
+
+  window.addEventListener('hashchange', event => {
+    if (!resettingAccount && event.oldURL) {
+      const previous = parseRoute(new URL(event.oldURL).hash);
+      if (ACCOUNT_VIEWS.has(previous.view) && previous.params.get('u')) {
+        selectedUsername = previous.params.get('u');
+      }
+    }
     const r = parseRoute();
+    if (ACCOUNT_VIEWS.has(r.view)) {
+      if (r.params.get('u')) selectedUsername = r.params.get('u');
+      else if (selectedUsername) {
+        r.params.set('u', selectedUsername);
+        writeHash(r.view, r.params);
+      }
+    }
+    resettingAccount = false;
     setView(r.view, { updateHash: false, params: r.params });
   });
 
   const initial = parseRoute();
+  if (ACCOUNT_VIEWS.has(initial.view)) {
+    const explicit = initial.params.get('u') || new URLSearchParams(location.search).get('u');
+    selectedUsername = explicit || selectedUsername;
+    if (selectedUsername && !initial.params.get('u')) {
+      initial.params.set('u', selectedUsername);
+      writeHash(initial.view, initial.params);
+    }
+  }
   setView(initial.view, { updateHash: false, params: initial.params });
 })();
