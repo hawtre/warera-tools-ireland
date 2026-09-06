@@ -736,6 +736,28 @@
       </div>
     </div>
 
+    <details class="howto sc-howto">
+      <summary>How to use</summary>
+      <div class="howto-body">
+        <p>Enter your War Era username and click <strong>Analyse</strong>. The tool loads your armor and dodge,
+          shows which extra points leave the displayed percentage unchanged, and suggests gear for your target.</p>
+        <ul>
+          <li>Check each card's effective percentage and <strong>wasted points</strong>. Points within the same band
+              give the same rounded percentage.</li>
+          <li>Choose <strong>Target effective</strong> to compare gear for your current percentage or a higher one.
+              Armor uses the combined stats from chest and pants; dodge comes from boots.</li>
+          <li>Change <strong>Skill</strong> to plan future skill levels. Recommendations update instantly;
+              this only changes the plan, not your account.</li>
+          <li>Expand <strong>All armor bands</strong> or <strong>All dodge bands</strong> to see the minimum total
+              and gear points needed for each percentage.</li>
+          <li>Use the suggested rolls and estimated cost as a shopping guide. Prices come from recent completed sales,
+              not current listings; rolls without sales are marked <em>estimated</em>. If prices are unavailable,
+              recommendations use rarity instead.</li>
+        </ul>
+        <div class="sc-credit">💡 Tool idea by <strong>Commodore_BigDag</strong>.</div>
+      </div>
+    </details>
+
     <div id="sc-steps" class="steps hidden">
       <div class="step" data-state="pending" data-step="1">
         <div class="step-icon"></div>
@@ -1108,7 +1130,7 @@
           <li>Adjust the engine / staff boxes to try "what if". Totals update instantly.</li>
           <li>Click any column heading to sort the product table. It opens on <strong>Total max</strong>, highest first.</li>
           <li><strong>Worker net wage</strong> is read from the live job market. Type over it to test a different wage —
-              <strong>Lowest wage</strong> and <strong>Profitable worker</strong> recalculate as you type.</li>
+              <strong>Target gross wage</strong> and <strong>Profitable worker</strong> recalculate as you type.</li>
         </ul>
         <div class="dp-credit">💡 Tool idea, formulas &amp; testing by <strong>Adro</strong>.</div>
       </div>
@@ -1145,7 +1167,7 @@
     <!-- Income summary + assumptions -->
     <div class="bf-card hidden" id="dp-stats-card">
       <h3 id="dp-stats-head">Projected income</h3>
-      <p class="bf-card-sub">Per day, at current market prices. Engine PP / Staff PP default to your real output — edit them to model a what-if and your company income scales live (zero them → zero). Worker net wage comes from the live job market and drives the Lowest wage and Profitable worker columns.</p>
+      <p class="bf-card-sub">Per day, at current market prices. Engine PP / Staff PP default to your real output — edit them to model a what-if and your company income scales live (zero them → zero). Worker net wage comes from the live job market and drives the Target gross wage and Profitable worker columns.</p>
       <div class="dp-assump" id="dp-assump"></div>
       <div class="dp-income" id="dp-income"></div>
     </div>
@@ -1153,7 +1175,7 @@
     <!-- Per-product profitability table -->
     <div class="bf-card hidden" id="dp-table-card">
       <h3>Profit by product</h3>
-      <p class="bf-card-sub"><strong>Bonus</strong> is the best production bonus available for that product; <strong>Country · tax</strong> and <strong>Deposit</strong> show where it comes from and whether it expires. <strong>Max company</strong> / <strong>Max employee</strong> = profit if 100% of your company AE / your employees went to that product at that bonus (<strong>Total max</strong> = both). <strong>Emp.</strong> is how many of your employees make it today and <strong>Actual / day</strong> is what your companies currently earn from it. <strong>Lowest wage</strong> is the least you'd post to match what a worker can earn elsewhere, after that country's income tax; <strong>Profitable worker</strong> says whether hiring one at that wage would pay for itself. Click any heading to sort.</p>
+      <p class="bf-card-sub"><strong>Bonus</strong> is the best production bonus available for that product; <strong>Country · tax</strong> and <strong>Deposit</strong> show where it comes from and whether it expires. <strong>Max company</strong> / <strong>Max employee</strong> = profit if 100% of your company AE / your employees went to that product at that bonus (<strong>Total max</strong> adds any positive employee contribution). <strong>Emp.</strong> is how many of your employees make it today and <strong>Actual / day</strong> is what your companies currently earn from it. <strong>Target gross wage</strong> is the suggested wage before tax to match what a worker can take home elsewhere, accounting for that country's income tax. It is not your break-even wage; <strong>Profitable worker</strong> says whether hiring one at that wage would pay for itself. Click any heading to sort.</p>
       <div class="dp-table-wrap">
         <table class="dp-table" id="dp-table"></table>
       </div>
@@ -1178,32 +1200,54 @@
       <summary>How this works · methodology</summary>
       <div class="howto-body">
         <ul>
-          <li><strong>Net / PP</strong> = <code>(salePrice − Σ(recipe × rawPrice)) ÷ productionPoints</code> — the raw profit per
-              production point, <em>before</em> the region bonus (the bonus is applied to the PP throughput instead).
-              It isn't a column in this layout, but it's what <strong>Max company</strong>, <strong>Max employee</strong>
-              and <strong>Actual / day</strong> are all built from, and the line under the table names whichever product
-              scores highest on it. Recipes &amp; production points from <code>gameConfig</code>; prices are the live market
-              <strong>lowest offer</strong> (best ask, what the game shows) via <code>tradingOrder.getTopOrders</code>;
-              the production bonus from the shared region/country model in <code>shared.js</code> that the Migration
-              Advisor and Dashboard also use (best region shown).</li>
-          <li><strong>Daily throughput</strong> ≈ your employees' output (<code>production × energy × 0.24 × (1 + fidelity)</code> PP/day each),
-              your own self-work (<code>production × entrepreneurship × 0.24</code>, no fidelity/wage), plus each company's
-              automated-engine production. It's an estimate — edit the field to match your real numbers.</li>
-          <li><strong>Max company / Max employee</strong> are theoretical upper bounds: 100% of your company AE (or
-              all your employees, incl. you, minus their wages) producing that one product at its best bonus.
-              <strong>Total max</strong> adds them. <strong>Actual / day</strong> sums what your companies currently make of each item.
-              Fidelity and the region bonus stack <em>additively</em> (<code>1 + fidelity% + bonus%</code>), matching the game.</li>
-          <li><strong>Lowest wage</strong> starts from the live job market, not a fixed rate: of all open offers
-              (<code>workOffer.getWorkOffersPaginated</code>, sorted by take-home pay) we drop the ones nobody could qualify
-              for — the game lets employers demand more energy or production than a maxed player can have — then drop
-              companies already at storage capacity, and take the 5th best to skip outliers. That net rate is grossed up
-              by each country's income tax. Override it in <strong>Worker net wage</strong> to model a different offer.</li>
-          <li><strong>Profitable worker</strong> answers "is one more hire worth it for this product?". A reference worker
-              (70 energy / 34 production = 571.2 PP/day) is costed at the lowest wage, their output converted to items and
-              valued at the profit per item. ✅ pays from day one, 🟡 only once fidelity has grown for five days
-              (fidelity lifts output but not the wage, so it's free), ❌ neither. It assumes the product's best-bonus
-              country, like the columns beside it — not your company's current location.</li>
-          <li>Prices come live from the market (lowest sell offer). The game's calculated price is used only when an item's order book is empty.</li>
+          <li><strong>Prices &amp; margins.</strong> Products and recipe ingredients are valued at the market's lowest sell offer,
+              falling back to the order-book midpoint, then the game's calculated price when unavailable. Missing product
+              prices can be entered manually. Profit per production point is
+              <code>(sale price − recipe material cost) ÷ production points</code>, before bonuses and wages.</li>
+          <li><strong>Locations &amp; bonuses.</strong> Each product row uses the region with the highest production bonus
+              found by the shared bonus model, including resource, deposit and ruling-party effects. The country, income tax
+              and deposit shown belong to that region. This is a highest-bonus comparison, not a search for the highest
+              profit after tax. <strong>Actual / day</strong> uses your companies' current locations instead.</li>
+          <li><strong>Daily production.</strong> Disabled companies are excluded. Engine output comes from each active
+              company's automated-engine upgrade. Each employee's base output is
+              <code>production × energy × 0.24</code> PP/day; product-table output applies
+              <code>1 + (fidelity + region bonus) / 100</code>. Wages are charged on base PP, before either bonus.
+              This assumes full use of daily work capacity.</li>
+          <li><strong>Self-work &amp; what-ifs.</strong> Your own entrepreneurship adds
+              <code>production × entrepreneurship × 0.24</code> base PP/day, with the chosen company's region bonus
+              and no wage or fidelity. It initially goes to your company with the highest margin per base PP;
+              change it with <strong>Self-work in</strong>. Engine PP and Staff PP include location bonuses.
+              Editing either scales that part of the product-table projections; Staff PP also scales wage costs.</li>
+          <li><strong>Max company / Max employee.</strong> Max company puts all your engine capacity into one product
+              at its best bonus. Max employee puts all employee capacity and your self-work there, retaining employee
+              fidelity. It costs ordinary employees at the higher of their wage and the target gross wage;
+              a detected reciprocal-hire buddy is costed at 0.106, and self-work is unpaid.
+              <strong>Total max</strong> adds Max company to Max employee only when the employee contribution is positive.
+              <strong>Actual / day</strong> estimates output value minus materials and wages for companies currently making
+              that product; it is a projection, not recorded sales. The Companies income line sums these actual-location estimates.</li>
+          <li><strong>Target gross wage.</strong> The tool samples the top 200 job offers by take-home pay, removes
+              requirements above maximum possible skills, then checks up to 40 remaining offers for full company storage.
+              The fifth remaining offer supplies the take-home benchmark. This filters impossible requirements, but does
+              not guarantee that every worker qualifies. The target is
+              <code>Worker net wage ÷ (1 − country income tax / 100)</code>:
+              a competitive wage before tax, not a mandatory minimum or your break-even wage. Override
+              <strong>Worker net wage</strong> to try another benchmark. If the lookup fails, enter one to restore
+              the wage and hiring verdict columns.</li>
+          <li><strong>Profitable worker.</strong> A reference hire uses energy skill level 4 and production skill level 8
+              from game configuration (normally 70 energy, 34 production and 571.2 base PP/day).
+              Their output at the row's best bonus is valued after material costs, then the target gross wage is deducted.
+              ✅ means positive profit on day one at 1% fidelity; 🟡 means positive profit at 5% fidelity after five days but not
+              initially; ❌ means neither. Fidelity and the region bonus add together, and neither increases wage costs.</li>
+          <li><strong>Salary.</strong> Average take-home pay per wage transaction over the last 24 hours is multiplied
+              by your modeled daily work capacity (<code>energy × 0.24</code>). The recent amount actually received is shown
+              alongside it; no recent payments means no modeled salary.</li>
+          <li><strong>Missions, cases &amp; deductions.</strong> Daily mission rewards are enabled initially; weekly rewards
+              are opt-in on the day you claim them. Case sales assume you sell the cases from selected missions at the
+              loaded market price, unless you enter a different count. Deductions value your entered company moves or
+              production changes at the configured concrete cost and loaded concrete price.</li>
+          <li><strong>Weekly projection.</strong> Daily income and deductions are repeated seven times, but selected weekly
+              mission money and its automatically modeled cases count only once. A manual case-sales count is repeated
+              seven times too, so this is a scenario estimate rather than a calendar forecast.</li>
           <li>Irish-citizens only (<code>?bypass=1</code> lifts it).</li>
         </ul>
       </div>

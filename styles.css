@@ -2029,6 +2029,10 @@ input[type="password"]:focus { outline: none; border-color: #3a4350; }
 .dp-howto strong { color: var(--text); }
 .dp-howto .dp-credit { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; }
 .dp-howto .dp-credit strong { color: var(--accent); }
+.sc-howto { margin-top: 0; margin-bottom: 16px; }
+.sc-howto strong { color: var(--text); }
+.sc-howto .sc-credit { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); font-size: 12px; }
+.sc-howto .sc-credit strong { color: var(--accent); }
 
 /* Per-product table */
 .dp-table-wrap { overflow-x: auto; }

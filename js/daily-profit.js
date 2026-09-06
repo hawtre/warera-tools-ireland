@@ -6,7 +6,7 @@
  *  The product table is sortable: click any header. It defaults to Total
  *  max descending. Net/PP is no longer a column (Sale and Raw cost feed
  *  it, and Max/Actual already embed it) but is still computed, and the
- *  footer note reports the best-Net/PP product regardless of sort order.
+ *  footer note reports price coverage and missing prices.
  * ═══════════════════════════════════════════════════════════════════ */
 const DailyProfitTool = (() => {
   // Works/day per energy point: 10%/hr recovery × 24h ÷ 10 energy-per-work = 0.24.
@@ -40,7 +40,7 @@ const DailyProfitTool = (() => {
     return { energy, production, basePP: energy * WORK_FACTOR * production };
   }
 
-  // Lowest wage is benchmarked against the live job market rather than a frozen
+  // Target gross wage is benchmarked against the live job market rather than a frozen
   // constant (it used to be 0.121, a stale snapshot of the then-top offer).
   // workOffer.getWorkOffersPaginated returns offers already sorted by
   // wageAfterTax descending, so we only need the head of the book.
@@ -92,10 +92,10 @@ const DailyProfitTool = (() => {
     return typeof net === 'number' && net > 0 ? net : null;
   }
 
-  // The net wage every Lowest-wage figure is grossed up from. wageOverride is
+  // The net wage every Target gross wage figure is grossed up from. wageOverride is
   // the manual "what if I posted this instead" input; null falls back to the
   // market rank-5. Null overall means the market lookup failed, which blanks
-  // the Lowest wage and Profitable worker columns.
+  // the Target gross wage and Profitable worker columns.
   function netWageRate() {
     return model.wageOverride != null ? model.wageOverride : model.marketNetWage;
   }
@@ -324,7 +324,7 @@ const DailyProfitTool = (() => {
       ]);
       const gameItems = gameConfig?.items || {};
       // Reference hire for the Profitable-worker column, plus the live market
-      // wage its Lowest-wage benchmark is drawn from. A market miss leaves
+      // wage its Target gross wage benchmark is drawn from. A market miss leaves
       // marketNetWage null, which blanks both columns rather than falling back
       // to a stale guess.
       const genericWorker = genericWorkerFromConfig(gameConfig);
@@ -731,7 +731,7 @@ const DailyProfitTool = (() => {
         <span class="dp-suffix">${Math.round(model.selfPPbase)} base PP</span>
       </div>` : ''}
       <div class="dp-field">
-        <label title="Net wage a worker could earn elsewhere. Every Lowest wage figure is this grossed up for the country's income tax.">Worker net wage</label>
+        <label title="Net wage a worker could earn elsewhere. Every Target gross wage figure is this grossed up for the country's income tax.">Worker net wage</label>
         <input type="number" id="dp-netwage" value="${netWageRate() ?? ''}" min="0" step="0.001"
                placeholder="${model.marketNetWage ?? 'unavailable'}">
         <span class="dp-suffix">${model.marketNetWage == null
@@ -819,18 +819,19 @@ const DailyProfitTool = (() => {
   // A generic hire's value-add for this product: gross PP they'd generate at
   // the lowest viable wage, converted to items made, valued at the product's
   // net profit/item, minus what they'd cost to hire.
-  // Fidelity is a free rider on top of that: it grows 1%/day (day 0 → 0%,
+  // Fidelity is a free rider on top of that: it grows 1%/day (day 1 → 1%,
   // day 5 → 5%) and lifts OUTPUT only — the wage is still paid on the
   // pre-fidelity base PP (same model as the Employees panel), so day 5 is
-  // strictly more profitable than day 0 for the same hire.
+  // strictly more profitable than day 1 for the same hire.
+  const FIDELITY_DAY1_PCT = 1;
   const FIDELITY_DAY5_PCT = 5;
   function workerProfitability(code, it, bonusPct, lowWage) {
     const ppPerItem = it?.productionPoints || 0;
-    if (!ppPerItem || lowWage == null) return { day0: null, day5: null };
+    if (!ppPerItem || lowWage == null) return { day1: null, day5: null };
     const basePP = model.genericWorker?.basePP ?? GENERIC_BASE_PP_FALLBACK;
     const sale = price(code);
     const rc = rawCostOf(code);
-    if (sale == null || rc == null) return { day0: null, day5: null };
+    if (sale == null || rc == null) return { day1: null, day5: null };
     const netProfitPerItem = sale - rc;
     // basePP is pre-fidelity and pre-bonus (energy × WORK_FACTOR ×
     // production), so it is what the wage is charged on — same convention as
@@ -839,7 +840,7 @@ const DailyProfitTool = (() => {
     // Output carries fidelity + region bonus additively, matching empAdjPP.
     const outputPP = (fidPct) => basePP * (1 + (fidPct + (bonusPct || 0)) / 100);
     const profitAt = (fidPct) => (outputPP(fidPct) / ppPerItem) * netProfitPerItem - wageCost;
-    return { day0: profitAt(0), day5: profitAt(FIDELITY_DAY5_PCT) };
+    return { day1: profitAt(FIDELITY_DAY1_PCT), day5: profitAt(FIDELITY_DAY5_PCT) };
   }
 
   function buildRows() {
@@ -894,13 +895,13 @@ const DailyProfitTool = (() => {
       // floored at 0 (don't let unprofitable employees drag the company ceiling).
       const totalMax = (maxCompany != null && maxEmployee != null) ? maxCompany + Math.max(maxEmployee, 0) : null;
       const empAssigned = model.employees.filter(e => e.item === code).length;
-      const { day0: employeeProfitDay0, day5: employeeProfitDay5 } = workerProfitability(code, it, bb.total, lowWage);
+      const { day1: employeeProfitDay1, day5: employeeProfitDay5 } = workerProfitability(code, it, bb.total, lowWage);
 
       rows.push({ code, name: META[code].name, cat: META[code].cat, type: it.type,
                   netPP: npp, bonus: bb.total, region: bb.region, country: bb.country,
                   tax: bb.tax, deposit: bb.depositInfo,
                   maxCompany, maxEmployee, totalMax, empAssigned, lowWage,
-                  employeeProfitDay0, employeeProfitDay5,
+                  employeeProfitDay1, employeeProfitDay5,
                   makesIt, actual: makesIt ? actual : null });
     }
     return sortRows(rows);
@@ -914,7 +915,7 @@ const DailyProfitTool = (() => {
 
   // Column definitions for the sortable header row. `key` matches SORT_ACCESSORS;
   // `l` marks left-aligned columns. `firstDir` is the direction the FIRST click
-  // applies (1 = ascending): text columns and "lowest wage" read naturally
+  // applies (1 = ascending): text columns and "target gross wage" read naturally
   // ascending, value columns default to biggest-first.
   const TABLE_COLS = [
     { key: 'name',        label: 'Product',        l: true, firstDir: 1 },
@@ -924,16 +925,16 @@ const DailyProfitTool = (() => {
     { key: 'totalMax',    label: 'Total max',      title: 'Max company + max employee' },
     { key: 'empAssigned', label: 'Emp.',           title: 'Your employees currently producing this product' },
     { key: 'actual',      label: 'Actual / day' },
-    { key: 'lowWage',     label: 'Lowest wage',    firstDir: 1, title: () => {
+    { key: 'lowWage',     label: 'Target gross wage',    firstDir: 1, title: () => {
       const rate = netWageRate();
       if (rate == null) return 'Market wage data unavailable, so no benchmark could be computed';
       const basis = model.wageOverride != null
         ? 'your manual override'
         : `the ${WAGE_RANK_FROM_TOP}th-best net wage on offer, ignoring unattainable postings and companies at capacity`;
-      return `Lowest wage to post so the worker nets ${fmt3(rate)} after this country's income tax — ${basis}`;
+      return `Suggested wage before tax so the worker nets ${fmt3(rate)} after this country's income tax — ${basis}. This is not your break-even wage.`;
     } },
     { key: 'profitable',  label: 'Profitable worker', title: () =>
-      `Would hiring a reference worker (${Math.round(model.genericWorker.energy)} energy / ${Math.round(model.genericWorker.production)} production = ${fmtPP(model.genericWorker.basePP)} base PP) at the lowest wage pay for itself on this product? Green = yes from day 0. Yellow = not yet, but yes by day 5 once their fidelity bonus (free extra output, same wage) kicks in. Red = no, even at day 5. Assumes the product’s best-bonus country and its tax — the same basis as the Bonus, Lowest wage and Country columns — not your company’s current location.` },
+      `Would hiring a reference worker (${Math.round(model.genericWorker.energy)} energy / ${Math.round(model.genericWorker.production)} production = ${fmtPP(model.genericWorker.basePP)} base PP) at the target gross wage pay for itself on this product? Green = yes on day 1 at 1% fidelity. Yellow = not yet, but yes by day 5 at 5% fidelity (extra output, same wage). Red = no, even at day 5. Assumes the product’s best-bonus country and its tax — the same basis as the Bonus, Target gross wage and Country columns — not your company’s current location.` },
     { key: 'country',     label: 'Country · tax',  l: true, firstDir: 1, title: 'Country giving the best production bonus, and its income tax (Country › Account)' },
     { key: 'deposit',     label: 'Deposit',        title: 'Temporary regional deposit driving the bonus, and when it expires' },
   ];
@@ -952,13 +953,13 @@ const DailyProfitTool = (() => {
       <tbody>${rows.map(r => {
         const regionTip = r.region ? `${escapeHtml(r.region.name)}${r.country ? ' · ' + escapeHtml(r.country.name) : ''}` : 'no bonus region';
         const money = (v) => v == null ? '<span class="dp-na">–</span>' : fmtK(v);
-        // Green from day 0, yellow if day-0 fails but the free fidelity bonus by
+        // Green from day 1, yellow if day-1 fails but the free fidelity bonus by
         // day 5 tips it into profit, red if not even by day 5.
-        const profitState = r.employeeProfitDay0 == null ? null
-          : (r.employeeProfitDay0 > 0 ? 'good' : (r.employeeProfitDay5 > 0 ? 'warn' : 'bad'));
+        const profitState = r.employeeProfitDay1 == null ? null
+          : (r.employeeProfitDay1 > 0 ? 'good' : (r.employeeProfitDay5 > 0 ? 'warn' : 'bad'));
         const wageClass = profitState == null ? '' : { good: 'dp-lowwage-good', warn: 'dp-lowwage-warn', bad: 'dp-lowwage-bad' }[profitState];
         const profitCell = profitState == null ? '<span class="dp-na">–</span>'
-          : { good: '<span class="dp-profit-yes">✅</span>', warn: '<span class="dp-profit-warn" title="Not profitable day 0, but turns profitable by day 5 once fidelity kicks in">🟡</span>', bad: '<span class="dp-profit-no">❌</span>' }[profitState];
+          : { good: '<span class="dp-profit-yes">✅</span>', warn: '<span class="dp-profit-warn" title="Not profitable on day 1 at 1% fidelity, but profitable by day 5 at 5% fidelity">🟡</span>', bad: '<span class="dp-profit-no">❌</span>' }[profitState];
         return `<tr class="${r.makesIt ? 'dp-owned' : ''}">
           <td class="dp-l"><span class="dp-prod">${iconHtml(r.code)}<span>${escapeHtml(r.name)}</span><span class="dp-pill ${r.type}">${r.type === 'product' ? 'Finished' : 'Raw'}</span><span class="dp-cat">· ${r.cat}</span></span></td>
           <td class="dp-bonus" title="${regionTip}">${r.bonus ? '+' + fmt2(r.bonus) + '%' : '<span class="dp-muted">0%</span>'}</td>
@@ -984,11 +985,7 @@ const DailyProfitTool = (() => {
 
     const priced = rows.filter(r => r.netPP != null).length;
     const missing = rows.filter(r => r.netPP == null).map(r => r.name);
-    // Highest Net/PP overall — NOT rows[0], which follows the user's sort.
-    const top = rows.reduce((best, r) =>
-      (r.netPP != null && (best == null || r.netPP > best.netPP)) ? r : best, null);
-    $tableNote.innerHTML = `Best profit per production point: <strong>${top && top.netPP != null ? top.name + ' (' + fmt3(top.netPP) + '/PP)' : '–'}</strong>. `
-      + `${priced}/${rows.length} products priced.` + (missing.length ? ` No market price for: <code>${missing.join('</code>, <code>')}</code>.` : '');
+    $tableNote.innerHTML = `${priced}/${rows.length} products priced.` + (missing.length ? ` No market price for: <code>${missing.join('</code>, <code>')}</code>.` : '');
 
     model._companiesIncome = rows.reduce((s, r) => s + (r.actual || 0), 0);
     renderIncome();
