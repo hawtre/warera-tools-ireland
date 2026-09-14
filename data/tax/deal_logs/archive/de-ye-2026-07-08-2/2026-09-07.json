@@ -1,0 +1,98 @@
+{
+  "week_start": "2026-09-07",
+  "days": [
+    {
+      "date": "2026-09-07",
+      "row": {
+        "factories": 5,
+        "workers": 6,
+        "home_workers": 1,
+        "partner_workers": 5,
+        "wages": 95.55,
+        "gross_tax": 6.59,
+        "home_worker_tax": 6.59,
+        "partner_worker_tax": 0.0,
+        "manual_rebate_due": 2.31,
+        "auto_remit_tax": 1.98,
+        "host_retained": 2.31
+      }
+    },
+    {
+      "date": "2026-09-08",
+      "row": {
+        "factories": 10,
+        "workers": 15,
+        "home_workers": 4,
+        "partner_workers": 11,
+        "wages": 172.66,
+        "gross_tax": 16.23,
+        "home_worker_tax": 5.24,
+        "partner_worker_tax": 10.99,
+        "manual_rebate_due": 5.68,
+        "auto_remit_tax": 4.87,
+        "host_retained": 5.68
+      }
+    },
+    {
+      "date": "2026-09-09",
+      "row": {
+        "factories": 22,
+        "workers": 32,
+        "home_workers": 10,
+        "partner_workers": 22,
+        "wages": 1036.4,
+        "gross_tax": 97.42,
+        "home_worker_tax": 41.4,
+        "partner_worker_tax": 56.03,
+        "manual_rebate_due": 34.1,
+        "auto_remit_tax": 29.23,
+        "host_retained": 34.1
+      }
+    },
+    {
+      "date": "2026-09-10",
+      "row": {
+        "factories": 28,
+        "workers": 40,
+        "home_workers": 13,
+        "partner_workers": 27,
+        "wages": 1478.56,
+        "gross_tax": 138.98,
+        "home_worker_tax": 60.21,
+        "partner_worker_tax": 78.77,
+        "manual_rebate_due": 48.64,
+        "auto_remit_tax": 41.7,
+        "host_retained": 48.64
+      }
+    },
+    {
+      "date": "2026-09-12",
+      "row": {
+        "factories": 38,
+        "workers": 52,
+        "home_workers": 22,
+        "partner_workers": 30,
+        "wages": 315.25,
+        "gross_tax": 26.8,
+        "home_worker_tax": 25.65,
+        "partner_worker_tax": 1.14,
+        "manual_rebate_due": 9.38,
+        "auto_remit_tax": 8.04,
+        "host_retained": 9.38
+      }
+    }
+  ],
+  "totals": {
+    "factories": 103,
+    "workers": 145,
+    "home_workers": 50,
+    "partner_workers": 95,
+    "wages": 3098.42,
+    "gross_tax": 286.02,
+    "home_worker_tax": 139.09,
+    "partner_worker_tax": 146.93,
+    "manual_rebate_due": 100.11,
+    "auto_remit_tax": 85.82,
+    "host_retained": 100.11
+  }
+}
