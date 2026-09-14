@@ -120,5 +120,6 @@ cp .dev.vars.example .dev.vars   # fill in WARERA_API_KEYS
 wrangler dev                     # http://localhost:8787
 ```
 
-`.dev.vars` is gitignored. `http://localhost` is already in
-`ALLOWED_ORIGINS` so the site's own dev server can call a local development Worker.
+Run from `worker/`. `.dev.vars` is gitignored. The example's `ALLOWED_ORIGINS`
+admits `http://localhost:8000`, so the site served locally on port 8000 can call
+this development Worker; `js/shared.js` targets it automatically on localhost.

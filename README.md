@@ -15,6 +15,16 @@ python3 -m http.server 8000
 
 Any static server works (`npx serve`, VS Code Live Server, etc.). There is nothing to install and nothing to compile.
 
+The tools that load game data also need a Worker. On `localhost`, `js/shared.js` points at a development Worker run with `wrangler dev` on `http://localhost:8787`, not the production one (production only accepts requests from the live site):
+
+```bash
+cd worker
+cp .dev.vars.example .dev.vars   # fill in WARERA_API_KEYS
+wrangler dev                     # http://localhost:8787
+```
+
+See [`worker/README.md`](worker/README.md) for details. To aim a page at a different Worker, add `?proxy=<origin>` to the hash (e.g. `#advisor?proxy=https://your-worker.workers.dev`); it sticks for the tab.
+
 ## How a contributor should think about this
 
 The site is one HTML page with several hidden "views". A hash router shows one view at a time. Each tool is a self-contained script that the router switches on when its view becomes visible. Shared plumbing (the API client, formatting helpers, the loading-step UI) lives in one file that every tool depends on.
