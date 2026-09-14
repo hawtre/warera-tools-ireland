@@ -27,17 +27,26 @@ const DailyProfitTool = (() => {
   // basePP × (margin per PP), so basePP factors out of both the sign (the
   // ✅/🟡/❌ verdict) and the ordering (every row shares it). Don't "correct"
   // it expecting the verdicts to move — only the margin can do that.
+  //
+  // The same worker also defines who the Target gross wage benchmark is for:
+  // the market lookup only counts offers this worker could actually take. Its
+  // player level is the lowest that affords those skill levels — players earn
+  // SKILL_POINTS_PER_LEVEL points per level (verified live: level 31 → 124
+  // points; gameConfig doesn't expose it), so 46 points → level 12.
   const GENERIC_WORKER_SKILL_LEVELS = { energy: 4, production: 8 };
   const GENERIC_BASE_PP_FALLBACK = 571.2;   // if gameConfig is unavailable
+  const SKILL_POINTS_PER_LEVEL = 4;
 
   function genericWorkerFromConfig(gameConfig) {
-    const lvl = (skill, level) => gameConfig?.skills?.[skill]?.levels?.[level]?.value;
-    const energy     = lvl('energy',     GENERIC_WORKER_SKILL_LEVELS.energy);
-    const production = lvl('production', GENERIC_WORKER_SKILL_LEVELS.production);
-    if (typeof energy !== 'number' || typeof production !== 'number') {
-      return { energy: 70, production: 34, basePP: GENERIC_BASE_PP_FALLBACK };
+    const lvl = (skill, level) => gameConfig?.skills?.[skill]?.levels?.[level];
+    const e = lvl('energy',     GENERIC_WORKER_SKILL_LEVELS.energy);
+    const p = lvl('production', GENERIC_WORKER_SKILL_LEVELS.production);
+    if (typeof e?.value !== 'number' || typeof p?.value !== 'number') {
+      return { energy: 70, production: 34, level: 12, basePP: GENERIC_BASE_PP_FALLBACK };
     }
-    return { energy, production, basePP: energy * WORK_FACTOR * production };
+    const level = Math.ceil(((e.totalCost ?? 0) + (p.totalCost ?? 0)) / SKILL_POINTS_PER_LEVEL);
+    return { energy: e.value, production: p.value, level,
+             basePP: e.value * WORK_FACTOR * p.value };
   }
 
   // Target gross wage is benchmarked against the live job market rather than a frozen
@@ -45,48 +54,40 @@ const DailyProfitTool = (() => {
   // workOffer.getWorkOffersPaginated returns offers already sorted by
   // wageAfterTax descending, so we only need the head of the book.
   const WAGE_RANK_FROM_TOP    = 5;    // skip outliers at the very top
-  const MARKET_OFFER_PAGE     = 200;  // ~66 KB; yields ~120 attainable offers
+  const MARKET_OFFER_PAGE     = 60;   // head of the book, before dropping restricted offers
   const MARKET_COMPANY_PROBE  = 40;   // how far down we check company.isFull
 
-  // Highest value any player can reach in a skill (level 10 in gameConfig):
-  // energy 130, production 40.
-  function maxSkillValue(gameConfig, skill) {
-    const levels = gameConfig?.skills?.[skill]?.levels;
-    if (!levels) return null;
-    const vals = Object.values(levels).map(l => l?.value).filter(v => typeof v === 'number');
-    return vals.length ? Math.max(...vals) : null;
-  }
-
-  async function fetchMarketNetWage(gameConfig) {
-    const maxEnergy     = maxSkillValue(gameConfig, 'energy');
-    const maxProduction = maxSkillValue(gameConfig, 'production');
-    const res = await dp_trpc('workOffer.getWorkOffersPaginated',
-      { limit: MARKET_OFFER_PAGE }).catch(() => null);
-    const offers = res?.items || [];
+  async function fetchMarketNetWage(worker) {
+    // Only offers the reference worker could take: the endpoint filters by
+    // the worker's energy, production and player level, the same filter the
+    // in-game job list applies. Without it the head of the book is dominated
+    // by offers a mid-game worker can't accept — skill minimums typed as
+    // PP/day (minProduction 5050) or minLevel 90+.
+    const res = await dp_trpc('workOffer.getWorkOffersPaginated', {
+      limit: MARKET_OFFER_PAGE,
+      energy: worker.energy,
+      production: worker.production,
+      level: worker.level,
+    }).catch(() => null);
+    // The benchmark is the globally available market, so drop offers limited
+    // to one country's citizens (they carry a `citizenship` field). The
+    // endpoint's own `citizenship` input can't do this: omitted, it returns
+    // every country's restricted offers; set, it adds that country's.
+    const offers = (res?.items || [])
+      .filter(o => !o.citizenship)
+      .slice(0, MARKET_COMPANY_PROBE);
     if (!offers.length) return null;
-
-    // Drop offers nobody could ever qualify for. createWorkOffer validates
-    // minEnergy/minProduction as min(0) with NO upper bound, so employers
-    // routinely post requirements above the level-10 caps — usually a PP/day
-    // figure typed into a skill field (minProduction 450, 5050, 39852 are all
-    // live right now). These dominate the head of the book: 19 of the top 20
-    // by net wage, which is exactly the skew that ranking by wage would
-    // otherwise inherit.
-    const attainable = offers.filter(o =>
-      (maxEnergy     == null || o.minEnergy     == null || o.minEnergy     <= maxEnergy) &&
-      (maxProduction == null || o.minProduction == null || o.minProduction <= maxProduction));
 
     // A company at storage capacity can't absorb more production, so its offer
     // isn't a real alternative for a worker. isFull lives on the company, not
-    // the offer, so only probe the head of the (already sorted) list rather
-    // than resolving all ~3000. A lookup that fails leaves the offer in: we
-    // can't prove it's full, and dropping it would understate the market.
-    const probe = attainable.slice(0, MARKET_COMPANY_PROBE);
-    const ids = [...new Set(probe.map(o => o.company).filter(Boolean))];
+    // the offer, so only the fetched head of the (already sorted) list is
+    // probed. A lookup that fails leaves the offer in: we can't prove it's
+    // full, and dropping it would understate the market.
+    const ids = [...new Set(offers.map(o => o.company).filter(Boolean))];
     const companies = await trpcManyValues('company.getById',
       ids.map(companyId => ({ companyId }))).catch(() => []);
     const full = new Map(ids.map((id, i) => [id, companies[i]?.isFull === true]));
-    const open = probe.filter(o => !full.get(o.company));
+    const open = offers.filter(o => !full.get(o.company));
 
     const net = open[WAGE_RANK_FROM_TOP - 1]?.wageAfterTax;
     return typeof net === 'number' && net > 0 ? net : null;
@@ -328,7 +329,7 @@ const DailyProfitTool = (() => {
       // marketNetWage null, which blanks both columns rather than falling back
       // to a stale guess.
       const genericWorker = genericWorkerFromConfig(gameConfig);
-      const marketNetWage = await fetchMarketNetWage(gameConfig);
+      const marketNetWage = await fetchMarketNetWage(genericWorker);
       // Price from the live order book — the LOWEST OFFER (best ask), i.e. the
       // "buy it now" value the game shows — falling back to the book midpoint,
       // then to the live game's calculated price when a book is empty/thin.
@@ -931,7 +932,7 @@ const DailyProfitTool = (() => {
       if (rate == null) return 'Market wage data unavailable, so no benchmark could be computed';
       const basis = model.wageOverride != null
         ? 'your manual override'
-        : `the ${WAGE_RANK_FROM_TOP}th-best net wage on offer, ignoring unattainable postings and companies at capacity`;
+        : `the ${WAGE_RANK_FROM_TOP}th-best net wage on offer, among offers the reference worker (${Math.round(model.genericWorker.energy)} energy / ${Math.round(model.genericWorker.production)} production, level ${model.genericWorker.level}) could take, ignoring citizenship-restricted offers and companies at capacity`;
       return `Suggested wage before tax so the worker nets ${fmt3(rate)} after this country's income tax — ${basis}. This is not your break-even wage.`;
     } },
     { key: 'profitable',  label: 'Profitable worker', title: () =>
